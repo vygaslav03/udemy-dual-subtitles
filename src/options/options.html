@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Udemy Dual Subtitles — Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="options-container">
+    <header class="options-header">
+      <h1>🎓 Udemy Dual Subtitles — Settings</h1>
+      <p class="options-subtitle">Configure your dual subtitle experience</p>
+    </header>
+
+    <div class="options-grid">
+
+      <!-- Languages -->
+      <section class="options-section">
+        <h2>🌐 Languages</h2>
+        <div class="form-group">
+          <label for="sourceLanguage">Source Language</label>
+          <select id="sourceLanguage">
+            <option value="en">🇬🇧 English</option>
+            <option value="ru">🇷🇺 Russian</option>
+            <option value="uk">🇺🇦 Ukrainian</option>
+            <option value="pl">🇵🇱 Polish</option>
+            <option value="de">🇩🇪 German</option>
+            <option value="es">🇪🇸 Spanish</option>
+            <option value="fr">🇫🇷 French</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="targetLanguage">Target Language</label>
+          <select id="targetLanguage">
+            <option value="en">🇬🇧 English</option>
+            <option value="ru">🇷🇺 Russian</option>
+            <option value="uk">🇺🇦 Ukrainian</option>
+            <option value="pl">🇵🇱 Polish</option>
+            <option value="de">🇩🇪 German</option>
+            <option value="es">🇪🇸 Spanish</option>
+            <option value="fr">🇫🇷 French</option>
+          </select>
+        </div>
+      </section>
+
+      <!-- Translation Provider -->
+      <section class="options-section">
+        <h2>🔄 Translation Provider</h2>
+        <div class="form-group">
+          <label for="translationProvider">Provider</label>
+          <select id="translationProvider">
+            <option value="google-free">Google Translate (Free, no key)</option>
+            <option value="google-cloud">Google Cloud Translation</option>
+            <option value="deepl">DeepL</option>
+            <option value="openai">OpenAI</option>
+            <option value="gemini">Google Gemini</option>
+            <option value="libretranslate">LibreTranslate</option>
+          </select>
+        </div>
+        <div class="form-group" id="apiKeyGroup">
+          <label for="apiKey">API Key</label>
+          <input type="password" id="apiKey" placeholder="Enter API key...">
+          <span class="form-hint" id="apiKeyHint">Stored locally, never sent anywhere except your chosen provider.</span>
+        </div>
+        <div class="form-group" id="apiEndpointGroup">
+          <label for="apiEndpoint">Custom Endpoint (optional)</label>
+          <input type="url" id="apiEndpoint" placeholder="https://...">
+        </div>
+        <div class="form-group" id="apiModelGroup">
+          <label for="apiModel">Model (optional)</label>
+          <input type="text" id="apiModel" placeholder="e.g., gpt-4o-mini">
+        </div>
+      </section>
+
+      <!-- Subtitle Appearance -->
+      <section class="options-section">
+        <h2>🎨 Subtitle Appearance</h2>
+        <div class="form-group">
+          <label for="originalFontSize">English Font Size: <span id="originalFontSizeVal">18</span>px</label>
+          <input type="range" id="originalFontSize" min="12" max="48" value="18">
+        </div>
+        <div class="form-group">
+          <label for="translationFontSize">Translation Font Size: <span id="translationFontSizeVal">16</span>px</label>
+          <input type="range" id="translationFontSize" min="12" max="48" value="16">
+        </div>
+        <div class="form-group">
+          <label for="originalColor">English Color</label>
+          <div class="color-row">
+            <input type="color" id="originalColor" value="#FFFFFF">
+            <span id="originalColorVal">#FFFFFF</span>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="translationColor">Translation Color</label>
+          <div class="color-row">
+            <input type="color" id="translationColor" value="#CCCCCC">
+            <span id="translationColorVal">#CCCCCC</span>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="backgroundOpacity">Background Opacity: <span id="backgroundOpacityVal">75</span>%</label>
+          <input type="range" id="backgroundOpacity" min="0" max="100" value="75">
+        </div>
+      </section>
+
+      <!-- Position -->
+      <section class="options-section">
+        <h2>📐 Position</h2>
+        <div class="form-group">
+          <label for="subtitlePosition">Subtitle Position</label>
+          <select id="subtitlePosition">
+            <option value="bottom">Bottom</option>
+            <option value="middle">Middle</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+        <div class="form-group" id="customOffsetGroup">
+          <label for="customVerticalOffset">Vertical Offset: <span id="customVerticalOffsetVal">60</span>px from bottom</label>
+          <input type="range" id="customVerticalOffset" min="10" max="400" value="60">
+        </div>
+        <div class="form-group">
+          <label for="subtitleMaxWidth">Max Width: <span id="subtitleMaxWidthVal">80</span>%</label>
+          <input type="range" id="subtitleMaxWidth" min="50" max="90" value="80" step="5">
+        </div>
+      </section>
+
+      <!-- Translation Behavior -->
+      <section class="options-section">
+        <h2>⚡ Translation Behavior</h2>
+        <div class="form-group">
+          <label for="maxConcurrentTranslations">Max Concurrent Translations</label>
+          <select id="maxConcurrentTranslations">
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="preFetchNext">
+            <span>Pre-translate next subtitle</span>
+          </label>
+          <span class="form-hint">Translates the upcoming subtitle in the background to reduce delay.</span>
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="smartSentenceMode">
+            <span>Smart sentence segmentation</span>
+          </label>
+          <span class="form-hint">Joins cut-off speech fragments into grammatically complete thoughts.</span>
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="restorePunctuation">
+            <span>Restore punctuation</span>
+          </label>
+          <span class="form-hint">Automatically inserts periods, commas, question marks, and capitalization.</span>
+        </div>
+      </section>
+
+      <!-- Cache -->
+      <section class="options-section">
+        <h2>💾 Cache</h2>
+        <div class="form-group">
+          <label for="cacheTTLDays">Cache Duration (days)</label>
+          <input type="number" id="cacheTTLDays" min="1" max="365" value="30">
+        </div>
+        <div class="form-group">
+          <label for="maxCacheEntries">Max Cache Entries</label>
+          <input type="number" id="maxCacheEntries" min="100" max="100000" value="10000">
+        </div>
+        <div class="form-group">
+          <div class="cache-stats">
+            <span id="cacheStats">Loading cache stats...</span>
+          </div>
+          <button id="clearCache" class="btn btn-danger">🗑️ Clear Cache</button>
+        </div>
+      </section>
+
+      <!-- QA Learning Mode -->
+      <section class="options-section">
+        <h2>📚 QA Learning Mode</h2>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="qaLearningMode">
+            <span>Enable QA Learning Mode</span>
+          </label>
+          <span class="form-hint">Click any word in subtitles to see translation and QA-specific meaning.</span>
+        </div>
+        <div class="form-group">
+          <button id="openDictionary" class="btn">📖 Open QA Dictionary</button>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- Keyboard Shortcuts -->
+    <section class="options-section shortcuts-section">
+      <h2>⌨️ Keyboard Shortcuts</h2>
+      <div class="shortcuts-table">
+        <div class="shortcut-row">
+          <kbd>Alt + D</kbd>
+          <span>Toggle dual subtitles</span>
+        </div>
+        <div class="shortcut-row">
+          <kbd>Alt + +</kbd>
+          <span>Increase subtitle size</span>
+        </div>
+        <div class="shortcut-row">
+          <kbd>Alt + -</kbd>
+          <span>Decrease subtitle size</span>
+        </div>
+      </div>
+      <p class="form-hint">Customize shortcuts in Chrome: <code>chrome://extensions/shortcuts</code></p>
+    </section>
+
+    <div id="saveStatus" class="save-status">✓ Settings saved</div>
+  </div>
+
+  <script src="options.ts" type="module"></script>
+</body>
+</html>

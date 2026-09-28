@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Udemy Dual Subtitles</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup">
+    <header class="popup-header">
+      <div class="popup-logo">
+        <span class="popup-icon">🎓</span>
+        <h1>Udemy Dual Subtitles</h1>
+      </div>
+      <div class="popup-version">v1.0.0</div>
+    </header>
+
+    <div class="popup-toggle">
+      <span class="toggle-title">Dual Subtitles</span>
+      <div class="toggle-controls">
+        <label class="toggle-switch" for="toggleEnabled">
+          <input type="checkbox" id="toggleEnabled" checked>
+          <span class="toggle-slider"></span>
+        </label>
+        <div id="toggleStatus" class="toggle-status on">ON</div>
+      </div>
+    </div>
+
+    <div class="popup-toggle">
+      <span class="toggle-title" title="Restores punctuation and formats sentences cleanly">Smart Sentences</span>
+      <div class="toggle-controls">
+        <label class="toggle-switch" for="smartSentenceMode">
+          <input type="checkbox" id="smartSentenceMode" checked>
+          <span class="toggle-slider"></span>
+        </label>
+        <div id="smartSentenceStatus" class="toggle-status on">ON</div>
+      </div>
+    </div>
+
+    <div class="popup-langs">
+      <div class="lang-row">
+        <span class="lang-label">Source:</span>
+        <select id="sourceLanguage">
+          <option value="en">🇬🇧 English</option>
+          <option value="ru">🇷🇺 Russian</option>
+          <option value="uk">🇺🇦 Ukrainian</option>
+          <option value="pl">🇵🇱 Polish</option>
+          <option value="de">🇩🇪 German</option>
+          <option value="es">🇪🇸 Spanish</option>
+          <option value="fr">🇫🇷 French</option>
+        </select>
+      </div>
+      <div class="lang-row">
+        <span class="lang-label">Translation:</span>
+        <select id="targetLanguage">
+          <option value="en">🇬🇧 English</option>
+          <option value="ru" selected>🇷🇺 Russian</option>
+          <option value="uk">🇺🇦 Ukrainian</option>
+          <option value="pl">🇵🇱 Polish</option>
+          <option value="de">🇩🇪 German</option>
+          <option value="es">🇪🇸 Spanish</option>
+          <option value="fr">🇫🇷 French</option>
+        </select>
+      </div>
+      <div class="lang-row">
+        <span class="lang-label">Provider:</span>
+        <select id="translationProvider">
+          <option value="google-free">⚡ Google (Free, Enhanced)</option>
+          <option value="gemini">✨ Gemini (Recommended)</option>
+          <option value="openai">🤖 OpenAI</option>
+          <option value="deepl">🌍 DeepL</option>
+          <option value="google-cloud">☁️ Google Cloud</option>
+          <option value="libretranslate">🔓 LibreTranslate</option>
+        </select>
+      </div>
+
+      <div class="api-key-panel" id="apiKeyPanel" style="display: none;">
+        <div class="api-key-row">
+          <input type="password" id="popupApiKey" placeholder="Paste API Key here..." autocomplete="off">
+          <button id="saveApiKeyBtn" class="api-key-save-btn">Save</button>
+        </div>
+        <div class="api-key-row" id="modelRow" style="margin-top: 6px; display: none;">
+          <input type="text" id="popupApiModel" placeholder="Model (e.g. gemini-2.5-flash)" autocomplete="off">
+          <button id="saveModelBtn" class="api-key-save-btn">Set</button>
+        </div>
+        <div class="api-key-hint" id="apiKeyHint">
+          <span id="apiKeyHintText">Get free key at <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com</a></span>
+        </div>
+      </div>
+
+      <div class="provider-banner" id="providerBanner" style="display: none;"></div>
+    </div>
+
+    <div class="popup-status" id="detectionStatus">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Checking...</span>
+    </div>
+
+    <div class="popup-actions">
+      <button id="openSettings" class="popup-btn">
+        <span>⚙</span> Settings
+      </button>
+      <button id="openDictionary" class="popup-btn">
+        <span>📖</span> QA Dictionary
+      </button>
+    </div>
+
+    <div class="popup-footer">
+      <span class="popup-provider" id="providerName">Loading...</span>
+    </div>
+  </div>
+
+  <script src="popup.ts" type="module"></script>
+</body>
+</html>

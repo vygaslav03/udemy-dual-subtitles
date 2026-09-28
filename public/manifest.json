@@ -1,0 +1,84 @@
+{
+  "manifest_version": 3,
+  "name": "Udemy Dual Subtitles",
+  "version": "1.0.0",
+  "description": "Display dual subtitles (English + Russian translation) on Udemy for language learning",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.udemy.com/*"
+      ],
+      "js": [
+        "content/content.js"
+      ],
+      "css": [
+        "content/content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "src/options/options.html",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "webRequest"
+  ],
+  "host_permissions": [
+    "https://*.udemy.com/*",
+    "https://*.udemycdn.com/*",
+    "https://translate.googleapis.com/*",
+    "https://translation.googleapis.com/*",
+    "https://api.deepl.com/*",
+    "https://api-free.deepl.com/*",
+    "https://api.openai.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://libretranslate.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "commands": {
+    "toggle-dual-subtitles": {
+      "suggested_key": {
+        "default": "Alt+D"
+      },
+      "description": "Toggle dual subtitles on/off"
+    },
+    "toggle-translation": {
+      "suggested_key": {
+        "default": "Alt+T"
+      },
+      "description": "Toggle translation visibility"
+    },
+    "increase-subtitle-size": {
+      "suggested_key": {
+        "default": "Alt+Up"
+      },
+      "description": "Increase subtitle font size"
+    },
+    "decrease-subtitle-size": {
+      "suggested_key": {
+        "default": "Alt+Down"
+      },
+      "description": "Decrease subtitle font size"
+    }
+  }
+}

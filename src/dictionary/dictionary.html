@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Udemy Dual Subtitles — QA Dictionary</title>
+  <link rel="stylesheet" href="dictionary.css">
+</head>
+<body>
+  <div class="dict-container">
+    <header class="dict-header">
+      <div>
+        <h1>📖 QA Dictionary</h1>
+        <p class="dict-subtitle">Words saved during your QA learning sessions</p>
+      </div>
+      <div class="dict-actions">
+        <button id="exportCsv" class="btn">📥 Export CSV</button>
+      </div>
+    </header>
+
+    <div class="dict-search">
+      <input type="text" id="searchInput" placeholder="Search words...">
+      <span class="search-icon">🔍</span>
+    </div>
+
+    <div class="dict-stats">
+      <span id="wordCount">0 words</span>
+    </div>
+
+    <div id="wordList" class="dict-list">
+      <div class="dict-empty" id="emptyState">
+        <div class="empty-icon">📚</div>
+        <p>No words saved yet</p>
+        <p class="empty-hint">Enable QA Learning Mode and click words in subtitles to save them here</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="dictionary.ts" type="module"></script>
+</body>
+</html>

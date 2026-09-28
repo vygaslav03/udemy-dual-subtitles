@@ -1,0 +1,119 @@
+/*
+ * Content script CSS — Udemy Dual Subtitles.
+ *
+ * Minimal CSS for animations and states that can't be done inline.
+ * Most styling is done inline in SubtitleRenderer for fullscreen compatibility.
+ */
+
+/* Loading animation */
+.uds-loading {
+  color: rgba(255, 255, 255, 0.5);
+  font-style: italic;
+  animation: uds-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes uds-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* Error text */
+.uds-error {
+  color: #ff8888;
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* Retry button hover */
+.uds-retry:hover {
+  background: rgba(255, 255, 255, 0.25) !important;
+}
+
+/* Subtitle container — centered column, non-intrusive */
+#uds-container {
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: max-content;
+  box-sizing: border-box;
+}
+
+#uds-container button,
+#uds-container [data-action],
+#uds-container .uds-text {
+  pointer-events: auto;
+}
+
+/* Individual subtitle lines */
+.uds-line {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin-left: auto;
+  margin-right: auto;
+  text-align: center;
+  background: transparent !important;
+}
+
+.uds-line:empty {
+  display: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  background: transparent !important;
+}
+
+/* Subtitle text badge — background is ONLY behind the text, not full screen */
+.uds-text {
+  display: inline-block;
+  background: var(--uds-bg-color, rgba(0, 0, 0, 0.75));
+  padding: 4px 10px;
+  border-radius: 4px;
+  margin: 1px 0;
+  box-sizing: border-box;
+  max-width: 100%;
+  line-height: 1.4;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+  user-select: text;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+/* Visually hide Udemy's native subtitles to prevent duplicate English display */
+.uds-hide-native [data-purpose="captions-cue-text"],
+.uds-hide-native [data-purpose="captions-display"],
+.uds-hide-native [class*="captions-display"],
+.uds-hide-native [class*="captions--captions-cue-text"],
+.uds-hide-native [class*="captions-cue-text"],
+.uds-hide-native [class*="caption-cue-text"],
+.uds-hide-native .vjs-text-track-display,
+.uds-hide-native .vjs-text-track-cue,
+.uds-hide-native .vjs-captions,
+.uds-hide-native .vjs-subtitles,
+.uds-hide-native video::cue {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Word tooltip close on click outside */
+.uds-word-tooltip {
+  animation: uds-fade-in 0.15s ease-out;
+}
+
+.uds-sel-btn {
+  animation: uds-fade-in 0.1s ease-out;
+}
+
+.uds-sel-popup {
+  animation: uds-fade-in 0.15s ease-out;
+}
+
+@keyframes uds-fade-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
