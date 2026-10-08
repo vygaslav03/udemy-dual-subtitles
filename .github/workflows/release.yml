@@ -1,0 +1,59 @@
+name: Release
+
+# Builds the extension and attaches a ready-to-load zip to a GitHub Release.
+# Trigger: push a tag like v1.0.1  (git tag v1.0.1 && git push origin v1.0.1)
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm test
+
+      - run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: Set manifest version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          node -e "
+            const fs = require('fs');
+            const p = 'dist/manifest.json';
+            const m = JSON.parse(fs.readFileSync(p, 'utf8'));
+            m.version = process.env.GITHUB_REF_NAME.replace(/^v/, '');
+            fs.writeFileSync(p, JSON.stringify(m, null, 2));
+          "
+
+      - name: Check manifest
+        run: test -f dist/manifest.json
+
+      - name: Zip dist
+        run: cd dist && zip -r ../udemy-dual-subtitles.zip .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: udemy-dual-subtitles
+          path: udemy-dual-subtitles.zip
+
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          files: udemy-dual-subtitles.zip
+          generate_release_notes: true

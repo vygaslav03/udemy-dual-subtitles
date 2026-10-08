@@ -18,6 +18,28 @@ A personal Chrome Extension that displays dual subtitles (English + Russian tran
 
 ## Installation
 
+### Quick install (no Node.js needed)
+
+1. Open the repository's **Releases** page and download `udemy-dual-subtitles.zip` from the latest release
+2. Unzip it into a folder you will keep (Chrome loads the extension from that folder)
+3. Open `chrome://extensions/`, enable **Developer mode** (top right)
+4. Click **Load unpacked** and select the unzipped folder (the one that contains `manifest.json`)
+
+To update: download the new zip, replace the folder contents, and click ↻ on the extension in `chrome://extensions/`.
+
+> Note: **Code → Download ZIP** gives you the source code, not the extension. Chrome will say the manifest is missing. Use the zip from Releases or build it yourself (below).
+
+### Publishing a release (for the maintainer)
+
+Bump nothing by hand — push a version tag and GitHub Actions builds the extension, sets the manifest version from the tag, and attaches the zip to a release:
+
+```bash
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+## Building from source
+
 ### Prerequisites
 
 - Node.js 18+
