@@ -40,12 +40,12 @@ import { log, logError, logWarn, makeCacheKey } from '../shared/utils';
 
 type JobKind = 'single' | 'batch';
 
-interface Job<T = unknown> {
+interface Job {
   kind: JobKind;
   key: string;
   priority: BatchPriority;
-  run: () => Promise<T>;
-  resolve: (value: T) => void;
+  /** Runs the work and settles the caller's promise */
+  run: () => Promise<void>;
   reject: (error: Error) => void;
 }
 
@@ -64,12 +64,12 @@ export class TranslationManager {
   private providers: Map<TranslationProviderType, TranslationProvider>;
   private fallbackProvider: TranslationProvider;
 
-  private jobs: Job<any>[] = [];
+  private jobs: Job[] = [];
   private activeCount = 0;
   private maxConcurrent: number;
 
   /** In-flight deduplication: key → promise + its job while it is still queued */
-  private inFlight = new Map<string, { promise: Promise<unknown>; job: Job<any> }>();
+  private inFlight = new Map<string, { promise: Promise<unknown>; job: Job }>();
 
   /** In-memory hot cache (namespaced keys) */
   private hotCache = new Map<string, TranslationResult>();
@@ -343,9 +343,9 @@ export class TranslationManager {
       return existing.promise as Promise<T>;
     }
 
-    let job!: Job<T>;
+    let job!: Job;
     const promise = new Promise<T>((resolve, reject) => {
-      job = { kind, key, priority, run, resolve, reject };
+      job = { kind, key, priority, run: () => run().then(resolve, reject), reject };
     });
 
     this.inFlight.set(key, { promise, job });
@@ -361,7 +361,7 @@ export class TranslationManager {
   }
 
   /** Newest job first within its priority: the latest current-cue request is the relevant one. */
-  private insertJob(job: Job<any>): void {
+  private insertJob(job: Job): void {
     const index = this.jobs.findIndex((j) => PRIORITY_RANK[j.priority] >= PRIORITY_RANK[job.priority]);
     if (index === -1) this.jobs.push(job);
     else this.jobs.splice(index, 0, job);
@@ -381,7 +381,6 @@ export class TranslationManager {
       this.activeCount++;
       job
         .run()
-        .then(job.resolve, job.reject)
         .finally(() => {
           this.activeCount--;
           this.pump();

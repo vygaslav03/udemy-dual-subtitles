@@ -2,7 +2,7 @@
  * Tests for the batch translation pipeline, cue grouper, subtitle formatter,
  * queue prioritization, and the 10 specific test cases from Section 18.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { CueGrouper } from '../src/content/CueGrouper';
 import { SubtitleFormatter } from '../src/content/SubtitleFormatter';
 import { TerminologyProcessor } from '../src/translation/TerminologyProcessor';

@@ -4,7 +4,7 @@
  * When the user selects text on Udemy, shows a small "Translate" button.
  * Clicking it shows the translation in a small popup near the selection.
  */
-import type { ExtensionSettings, LanguageCode } from '../shared/types';
+import type { ExtensionSettings } from '../shared/types';
 import { CSS_PREFIX } from '../shared/constants';
 import { TranslationClient } from '../translation/TranslationClient';
 import { escapeHtml, log } from '../shared/utils';
@@ -188,7 +188,7 @@ export class SelectionTranslator {
         }
       });
 
-    } catch (err) {
+    } catch {
       updatePopup(`
         <div style="color: #fff; margin-bottom: 4px;">${escapeHtml(text)}</div>
         <div style="color: #f88; font-size: 12px;">Translation failed</div>

@@ -118,11 +118,16 @@ export function isUdemyCoursePage(): boolean {
   return false;
 }
 
+/** Debug logging is compiled in for `npm run dev` (and tests) only; production builds stay quiet. */
+const DEBUG = import.meta.env.DEV;
+
 /**
- * Logs messages with extension prefix for easy filtering.
+ * Logs debug messages with extension prefix for easy filtering.
+ * Subtitle text appears in these messages, so they must not reach the Udemy console in production.
  */
 export function log(message: string, ...args: unknown[]): void {
-  console.log(`[UDS] ${message}`, ...args);
+  // eslint-disable-next-line no-console
+  if (DEBUG) console.log(`[UDS] ${message}`, ...args);
 }
 
 export function logError(message: string, ...args: unknown[]): void {

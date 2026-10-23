@@ -11,7 +11,7 @@ const TIMING_REGEX = /((?:\d+:)?\d{1,2}:\d{2}[.,]\d{3})\s*-->\s*((?:\d+:)?\d{1,2
  * Cue settings, identifiers, NOTE/STYLE blocks and tags are ignored; entities are decoded.
  */
 export function parseWebVTT(vttText: string): TimedText[] {
-  const lines = vttText.replace(/^﻿/, '').replace(/\r\n?/g, '\n').split('\n');
+  const lines = vttText.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split('\n');
   const cues: TimedText[] = [];
 
   let i = 0;

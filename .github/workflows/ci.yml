@@ -1,0 +1,35 @@
+name: CI
+
+# Lint, type-check, test and build every push to main and every pull request.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm test
+
+      # `build` runs `tsc --noEmit` first
+      - run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: Check build output
+        run: test -f dist/manifest.json && test -f dist/content/content.js && test -f dist/background/background.js
