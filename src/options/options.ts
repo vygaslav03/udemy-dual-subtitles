@@ -90,7 +90,7 @@ class OptionsController {
     for (const field of PROVIDER_FIELDS) {
       document.getElementById(field.id)?.addEventListener('change', async (e) => {
         const value = (e.target as HTMLInputElement).value.trim();
-        if (field.key === 'apiEndpoint' && value && !(await this.requestEndpointAccess(value))) return;
+        if (field.key === 'apiEndpoint' && value) await this.requestEndpointAccess(value);
         this.settings = await sendToBackground('UPDATE_PROVIDER_CONFIG', {
           provider: this.settings.translationProvider,
           config: { [field.key]: value },
@@ -157,26 +157,28 @@ class OptionsController {
 
   /**
    * Custom endpoints on hosts outside the manifest's host_permissions need an optional host
-   * permission, or the service worker's requests would be blocked by CORS.
+   * permission, or the service worker's requests would be blocked by CORS. The endpoint is
+   * saved either way; the hint tells whether requests to it can work.
    */
-  private async requestEndpointAccess(endpoint: string): Promise<boolean> {
+  private async requestEndpointAccess(endpoint: string): Promise<void> {
     const hint = document.getElementById('apiEndpointHint');
+    const show = (text: string) => {
+      if (hint) hint.textContent = text;
+    };
     let origin: string;
     try {
       origin = `${new URL(endpoint).origin}/*`;
     } catch {
-      if (hint) hint.textContent = 'Not a valid URL.';
-      return false;
+      show('Not a valid URL — the default endpoint is used.');
+      return;
     }
     try {
       const granted =
         (await chrome.permissions.contains({ origins: [origin] })) || (await chrome.permissions.request({ origins: [origin] }));
-      if (hint) hint.textContent = granted ? `Access to ${origin} granted.` : `Access to ${origin} was not granted; the endpoint was not saved.`;
-      return granted;
+      show(granted ? `Access to ${origin} granted.` : `Access to ${origin} was not granted — requests to it will fail.`);
     } catch (err) {
-      // Non-https hosts other than localhost are not requestable (and are ignored by the providers).
-      if (hint) hint.textContent = `Cannot use this endpoint: ${err instanceof Error ? err.message : err}`;
-      return false;
+      // Non-https hosts other than localhost cannot be requested (and are ignored by the providers).
+      show(`Cannot request access to ${origin}: ${err instanceof Error ? err.message : err}`);
     }
   }
 
