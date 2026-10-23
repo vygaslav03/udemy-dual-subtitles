@@ -64,10 +64,13 @@ npm run build
 ### Development
 
 ```bash
-npm run dev    # Watch mode — rebuilds on changes
+npm run dev    # Watch mode — rebuilds on changes (with debug logging)
+npm run check  # Lint, type check (sources + tests) and unit tests — what CI runs before the build
 ```
 
 After rebuilding, go to `chrome://extensions/` and click the ↻ reload button on the extension.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for how the parts fit together.
 
 ## Configuration
 
@@ -86,14 +89,20 @@ Open the extension popup → click **⚙ Settings** → **Translation Provider**
 
 ### 2. Add API Key (if needed)
 
-Settings → **API Key** → paste your key. It's stored locally in `chrome.storage.local` and only sent to your chosen provider endpoint.
+Settings → **API Key** → paste your key. It's stored locally in `chrome.storage.local`, read only by the extension's background worker and pages (never by the script running on Udemy pages), and only sent to your chosen provider endpoint.
 
-### 3. Enable Dual Subtitles
+A **custom endpoint** (e.g. a self-hosted LibreTranslate or an OpenAI-compatible server) must be `https://` or `http://localhost`; Chrome asks for access to its host when you save it.
+
+### 3. Fallback to Google Translate (optional)
+
+Settings → **Translation Behavior** → **Fall back to Google Translate on errors**. Off by default: subtitle text is then sent only to the provider you chose, and errors (missing key, quota, outage) are shown under the subtitle. When on, failed requests are retried with Google Translate (free) and those translations are marked "· Google".
+
+### 4. Enable Dual Subtitles
 
 - Click the extension icon → toggle **ON**
 - Or press **Alt + D**
 
-### 4. Choose Languages
+### 5. Choose Languages
 
 Popup → select **Source** (English) and **Translation** (Russian) languages.
 
@@ -124,16 +133,19 @@ Customize shortcuts: `chrome://extensions/shortcuts`
 udemy-dual-subtitles/
 ├── src/
 │   ├── content/          # Content script (injected into Udemy)
-│   ├── background/       # Service worker
+│   ├── background/       # Service worker: message router, settings store
+│   ├── subtitles/        # Pure subtitle logic (VTT parsing, sentence units)
 │   ├── translation/      # Translation providers, cache, queue
 │   ├── popup/            # Extension popup
 │   ├── options/          # Settings page
 │   ├── dictionary/       # QA Dictionary page
-│   └── shared/           # Types, storage, utilities
+│   └── shared/           # Types, settings schema, message contract, storage, utilities
+├── tests/                # Vitest unit tests
 ├── public/
 │   ├── manifest.json     # Chrome Extension manifest
 │   └── icons/            # Extension icons
 ├── vite.config.ts        # Build configuration
+├── eslint.config.js      # Lint configuration
 ├── tsconfig.json         # TypeScript configuration
 └── package.json
 ```
@@ -143,7 +155,8 @@ udemy-dual-subtitles/
 This extension:
 - ✅ Works only on `udemy.com`
 - ✅ Stores all data locally (settings, cache, dictionary)
-- ✅ API key is stored in `chrome.storage.local` only
+- ✅ API key is stored in `chrome.storage.local` only and never passed to the script running on Udemy pages
+- ✅ Subtitle text goes only to the provider you choose (unless you enable the Google fallback)
 - ✅ No analytics or telemetry
 - ✅ No data collection
 - ❌ Does not access other sites

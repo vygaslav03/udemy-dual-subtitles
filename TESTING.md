@@ -11,8 +11,8 @@
 ## Build
 
 - [ ] `npm install` completes without errors
+- [ ] `npm run check` passes (lint, type check of sources and tests, unit tests)
 - [ ] `npm run build` completes without errors
-- [ ] TypeScript `tsc --noEmit` passes with 0 errors
 - [ ] `dist/` folder contains all expected files
 
 ## Extension Loading
@@ -28,7 +28,7 @@
 - [ ] Detection works after page refresh
 - [ ] Detection works after initial page load
 - [ ] Detection retries if player not loaded yet
-- [ ] Console shows detection strategy used
+- [ ] Console shows detection strategy used (`npm run dev` build only — production builds do not log)
 
 ## Translation
 
@@ -42,7 +42,9 @@
 
 ## Error Handling
 
-- [ ] API failure shows "Translation unavailable"
+- [ ] API failure shows the provider's error under the subtitle
+- [ ] Fallback off (default): with a missing/invalid key no request goes to translate.googleapis.com
+- [ ] Fallback on: a failing provider is replaced by Google and the line is marked "· Google"
 - [ ] Retry button appears on error
 - [ ] Retry button triggers re-translation
 - [ ] Extension doesn't break video playback on error
@@ -97,8 +99,11 @@
 - [ ] Background opacity slider works
 - [ ] Position selector works
 - [ ] Provider change shows/hides API fields
-- [ ] Cache stats displayed
-- [ ] Clear cache button works
+- [ ] Cache stats displayed (count and oldest entry)
+- [ ] Clear cache button works and the stats drop to 0
+- [ ] Emptying a number field restores a valid value instead of saving nothing/NaN
+- [ ] Changes made in the popup while the options page is open are not lost
+- [ ] Saving a custom endpoint on a new host asks for host access
 
 ## QA Learning Mode
 
@@ -130,6 +135,7 @@
 - [ ] Translation popup shows result
 - [ ] Close button works
 - [ ] "Save word" button works (if QA mode on)
+- [ ] No "Translate" button while the extension is switched off
 
 ## Keyboard Shortcuts
 
@@ -152,4 +158,5 @@
 - [ ] Extension only active on udemy.com
 - [ ] No network requests to unexpected domains
 - [ ] API key not leaked to console/network
+- [ ] DevTools of a Udemy tab (content script context): `chrome.storage` is never called, settings messages contain no `providerConfigs`
 - [ ] No analytics or tracking requests
