@@ -12,7 +12,7 @@ export default tseslint.config(
       globals: { ...globals.browser, ...globals.serviceworker, chrome: 'readonly' },
     },
     rules: {
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', ignoreRestSiblings: true }],
       'no-console': ['error', { allow: ['warn', 'error'] }],
     },
   },

@@ -23,8 +23,9 @@ function mockProvider(overrides: Partial<TranslationProvider> = {}): Translation
   };
 }
 
-function createManager(max = 2) {
+function createManager(max = 2, { fallback = true } = {}) {
   const manager = new TranslationManager(max, 50, 1);
+  manager.setFallbackEnabled(fallback);
   const store = new Map<string, string>();
   const cache = (manager as any).cache;
   cache.get = vi.fn(async (s: string, t: string, text: string, ns: string) => {
@@ -123,6 +124,51 @@ describe('TranslationManager', () => {
     await manager.translate('one', 'en', 'ru');
     await manager.translate('two', 'en', 'ru');
     expect(broken.translate).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not send text to Google when the fallback is disabled', async () => {
+    const { manager, google } = createManager(2, { fallback: false });
+    (manager as any).provider = mockProvider({ translate: vi.fn().mockRejectedValue(new ProviderError('timeout', 'slow')) });
+    google.translate = vi.fn().mockResolvedValue('гугл');
+
+    await expect(manager.translate('hello', 'en', 'ru')).rejects.toMatchObject({ kind: 'timeout' });
+    expect(google.translate).not.toHaveBeenCalled();
+  });
+
+  it('does not send batches to Google when the fallback is disabled', async () => {
+    const { manager, google } = createManager(2, { fallback: false });
+    (manager as any).provider = mockProvider({
+      translateBatch: vi.fn().mockRejectedValue(new ProviderError('server', 'down', 503)),
+    });
+    google.translate = vi.fn().mockResolvedValue('гугл');
+
+    await expect(manager.translateBatch(batch(['hello']))).rejects.toMatchObject({ kind: 'server' });
+    expect(google.translate).not.toHaveBeenCalled();
+  });
+
+  it('with an open breaker and no fallback, fails fast with the original error', async () => {
+    const { manager, google } = createManager(2, { fallback: false });
+    const broken = mockProvider({ translate: vi.fn().mockRejectedValue(new ProviderError('auth', 'bad key', 401)) });
+    (manager as any).provider = broken;
+    google.translate = vi.fn();
+
+    await expect(manager.translate('one', 'en', 'ru')).rejects.toMatchObject({ kind: 'auth' });
+    const second = manager.translate('two', 'en', 'ru');
+    await expect(second).rejects.toMatchObject({ kind: 'auth' });
+    await expect(second).rejects.toThrow(/bad key.*paused/);
+    expect(broken.translate).toHaveBeenCalledTimes(1);
+    expect(google.translate).not.toHaveBeenCalled();
+  });
+
+  it('closes the breaker when the provider is reconfigured (e.g. a new key)', async () => {
+    const { manager } = createManager(2, { fallback: false });
+    const gemini = (manager as any).providers.get('gemini');
+    gemini.translate = vi.fn().mockRejectedValueOnce(new ProviderError('auth', 'bad key', 401)).mockResolvedValue('ок');
+    manager.setProvider('gemini', { apiKey: 'old' });
+
+    await expect(manager.translate('one', 'en', 'ru')).rejects.toMatchObject({ kind: 'auth' });
+    manager.setProvider('gemini', { apiKey: 'new' });
+    expect((await manager.translate('one', 'en', 'ru')).translatedText).toBe('ок');
   });
 
   it('sends only uncached segments of a batch to the provider', async () => {

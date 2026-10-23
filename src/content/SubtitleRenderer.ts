@@ -7,7 +7,7 @@
  *
  * Handles styling, positioning, error states, and fullscreen.
  */
-import type { ExtensionSettings, SubtitleState } from '../shared/types';
+import type { PublicSettings, SubtitleState } from '../shared/types';
 import { CSS_PREFIX, LOADING_INDICATOR_DELAY_MS } from '../shared/constants';
 import { escapeHtml } from '../shared/utils';
 import { SubtitleFormatter } from './SubtitleFormatter';
@@ -18,13 +18,13 @@ export class SubtitleRenderer {
   private translationLine: HTMLElement | null = null;
   private retryButton: HTMLElement | null = null;
   private playerContainer: HTMLElement | null = null;
-  private settings: ExtensionSettings;
+  private settings: PublicSettings;
   private currentState: SubtitleState = { originalText: '', translatedText: '', status: 'idle' };
   private retryCallback: (() => void) | null = null;
   private loadingTimer: ReturnType<typeof setTimeout> | null = null;
   private translationVisible = true;
 
-  constructor(settings: ExtensionSettings) {
+  constructor(settings: PublicSettings) {
     this.settings = settings;
   }
 
@@ -127,6 +127,10 @@ export class SubtitleRenderer {
       this.container.style.display = 'none';
       return;
     }
+
+    // Marks translations made by the Google fallback instead of the configured provider
+    this.translationLine.classList.toggle(`${CSS_PREFIX}-fallback`, state.status === 'done' && !!state.fallback);
+    this.translationLine.title = state.status === 'done' && state.fallback ? 'Translated by Google Translate (fallback)' : '';
 
     // Show translation based on status
     switch (state.status) {
@@ -234,7 +238,7 @@ export class SubtitleRenderer {
   /**
    * Updates settings and re-applies styles.
    */
-  updateSettings(settings: ExtensionSettings): void {
+  updateSettings(settings: PublicSettings): void {
     this.settings = settings;
     this.applyStyles();
     this.setHideNative(settings.enabled);

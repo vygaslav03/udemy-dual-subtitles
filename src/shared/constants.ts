@@ -1,15 +1,33 @@
-import type { ExtensionSettings, LanguageOption } from './types';
+import type { ExtensionSettings, LanguageOption, TranslationProviderType } from './types';
 
-/** All supported languages */
+/** All supported languages — the single source for language pickers and prompts */
 export const SUPPORTED_LANGUAGES: LanguageOption[] = [
-  { code: 'en', name: 'English', nativeName: 'English' },
-  { code: 'ru', name: 'Russian', nativeName: 'Русский' },
-  { code: 'uk', name: 'Ukrainian', nativeName: 'Українська' },
-  { code: 'pl', name: 'Polish', nativeName: 'Polski' },
-  { code: 'de', name: 'German', nativeName: 'Deutsch' },
-  { code: 'es', name: 'Spanish', nativeName: 'Español' },
-  { code: 'fr', name: 'French', nativeName: 'Français' },
+  { code: 'en', name: 'English', nativeName: 'English', flag: '🇬🇧' },
+  { code: 'ru', name: 'Russian', nativeName: 'Русский', flag: '🇷🇺' },
+  { code: 'uk', name: 'Ukrainian', nativeName: 'Українська', flag: '🇺🇦' },
+  { code: 'pl', name: 'Polish', nativeName: 'Polski', flag: '🇵🇱' },
+  { code: 'de', name: 'German', nativeName: 'Deutsch', flag: '🇩🇪' },
+  { code: 'es', name: 'Spanish', nativeName: 'Español', flag: '🇪🇸' },
+  { code: 'fr', name: 'French', nativeName: 'Français', flag: '🇫🇷' },
 ];
+
+/** Display names of the translation providers */
+export const PROVIDER_LABELS: Record<TranslationProviderType, string> = {
+  'google-free': 'Google Translate (Free)',
+  'google-cloud': 'Google Cloud Translation',
+  deepl: 'DeepL',
+  openai: 'OpenAI',
+  gemini: 'Google Gemini',
+  libretranslate: 'LibreTranslate',
+};
+
+/** Providers that cannot work without an API key */
+export const PROVIDERS_REQUIRING_KEY: ReadonlySet<TranslationProviderType> = new Set([
+  'google-cloud',
+  'deepl',
+  'openai',
+  'gemini',
+]);
 
 /** Default settings for fresh install */
 export const DEFAULT_SETTINGS: ExtensionSettings = {
@@ -29,6 +47,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   customVerticalOffset: 60,
   subtitleMaxWidth: 80,
 
+  fallbackToGoogle: false,
   maxConcurrentTranslations: 2,
   preFetchNext: true,
   cacheTTLDays: 30,
@@ -54,10 +73,7 @@ export const DB_VERSION = 2;
 export const CACHE_STORE_NAME = 'translations';
 
 /** Bump when prompts change so LLM translations made with old prompts are not reused */
-export const PROMPT_VERSION = 2;
-
-/** chrome.storage.local key written by the background when the cache is cleared */
-export const CACHE_EPOCH_KEY = 'uds_cache_epoch';
+export const PROMPT_VERSION = 3;
 
 /** Timing constants — optimized for real-time video subtitles */
 export const SUBTITLE_DEBOUNCE_MS = 15;

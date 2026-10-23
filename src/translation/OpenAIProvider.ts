@@ -13,7 +13,6 @@ import {
   LLM_BATCH_TIMEOUT_MS,
   OPENAI_DEFAULT_MODEL,
   PROMPT_VERSION,
-  SUPPORTED_LANGUAGES,
 } from '../shared/constants';
 import {
   getSubtitleSystemPrompt,
@@ -43,10 +42,6 @@ export class OpenAIProvider implements TranslationProvider {
 
   get cacheNamespace(): string {
     return `openai:${this.model}:p${PROMPT_VERSION}`;
-  }
-
-  private getLanguageName(code: LanguageCode): string {
-    return SUPPORTED_LANGUAGES.find((l) => l.code === code)?.name || code;
   }
 
   private async complete(
@@ -104,7 +99,7 @@ export class OpenAIProvider implements TranslationProvider {
     context?: { previous?: string; upcoming?: string }
   ): Promise<string> {
     const content = await this.complete(
-      getSubtitleSystemPrompt(this.getLanguageName(source), this.getLanguageName(target)),
+      getSubtitleSystemPrompt(source, target),
       buildSubtitleUserPrompt(text, context),
       { json: false, timeoutMs: LLM_TIMEOUT_MS, maxTokens: 1000 }
     );
@@ -116,10 +111,9 @@ export class OpenAIProvider implements TranslationProvider {
   async translateBatch(request: BatchTranslationRequest): Promise<TranslatedSegment[]> {
     if (!request.segments || request.segments.length === 0) return [];
 
-    const targetName = this.getLanguageName(request.target);
     const content = await this.complete(
-      getBatchSubtitleSystemPrompt(this.getLanguageName(request.source), targetName),
-      buildBatchSubtitleUserPrompt(request, targetName),
+      getBatchSubtitleSystemPrompt(request.source, request.target),
+      buildBatchSubtitleUserPrompt(request),
       { json: true, timeoutMs: LLM_BATCH_TIMEOUT_MS, maxTokens: 4096 }
     );
     return mapBatchResponse(content, request.segments, this.name);

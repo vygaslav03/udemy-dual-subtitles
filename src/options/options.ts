@@ -1,9 +1,16 @@
 /**
  * Options Page Script — Udemy Dual Subtitles.
+ *
+ * Reads settings from storage (trusted extension page); writes go through the background,
+ * which validates them and returns the stored values, so the form always shows what is saved.
  */
-import { getProviderConfig, loadSettings, saveProviderConfig, saveSettings } from '../shared/storage';
-import type { ExtensionSettings, ProviderSettings } from '../shared/types';
-import { GEMINI_DEFAULT_MODEL, OPENAI_DEFAULT_MODEL } from '../shared/constants';
+import { readSettings } from '../shared/storage';
+import { getProviderConfig } from '../shared/settings';
+import { sendToBackground } from '../shared/messages';
+import { fillLanguageSelect } from '../shared/dom';
+import { debounce } from '../shared/utils';
+import type { ExtensionSettings, ProviderSettings, PublicSettings } from '../shared/types';
+import { GEMINI_DEFAULT_MODEL, OPENAI_DEFAULT_MODEL, PROVIDERS_REQUIRING_KEY } from '../shared/constants';
 
 /** Inputs stored per provider (each provider keeps its own key/endpoint/model). */
 const PROVIDER_FIELDS: Array<{ id: string; key: keyof ProviderSettings }> = [
@@ -12,106 +19,70 @@ const PROVIDER_FIELDS: Array<{ id: string; key: keyof ProviderSettings }> = [
   { id: 'apiModel', key: 'apiModel' },
 ];
 
+type FieldType = 'select' | 'number' | 'checkbox' | 'range' | 'color';
+type SettingKey = keyof PublicSettings;
+
+const FIELDS: Array<{ id: SettingKey; type: FieldType }> = [
+  { id: 'sourceLanguage', type: 'select' },
+  { id: 'targetLanguage', type: 'select' },
+  { id: 'translationProvider', type: 'select' },
+  { id: 'originalFontSize', type: 'range' },
+  { id: 'translationFontSize', type: 'range' },
+  { id: 'originalColor', type: 'color' },
+  { id: 'translationColor', type: 'color' },
+  { id: 'backgroundOpacity', type: 'range' },
+  { id: 'subtitlePosition', type: 'select' },
+  { id: 'customVerticalOffset', type: 'range' },
+  { id: 'subtitleMaxWidth', type: 'range' },
+  { id: 'fallbackToGoogle', type: 'checkbox' },
+  { id: 'maxConcurrentTranslations', type: 'number' },
+  { id: 'preFetchNext', type: 'checkbox' },
+  { id: 'smartSentenceMode', type: 'checkbox' },
+  { id: 'restorePunctuation', type: 'checkbox' },
+  { id: 'cacheTTLDays', type: 'number' },
+  { id: 'maxCacheEntries', type: 'number' },
+  { id: 'qaLearningMode', type: 'checkbox' },
+];
+
+/** Sliders and color pickers fire on every movement; storage is written once they settle. */
+const LIVE_INPUT_SAVE_DELAY_MS = 150;
+
 class OptionsController {
   private settings!: ExtensionSettings;
   private saveTimeout: ReturnType<typeof setTimeout> | null = null;
 
   async init(): Promise<void> {
-    this.settings = await loadSettings();
+    this.settings = await readSettings();
+    fillLanguageSelect(document.getElementById('sourceLanguage') as HTMLSelectElement | null, this.settings.sourceLanguage);
+    fillLanguageSelect(document.getElementById('targetLanguage') as HTMLSelectElement | null, this.settings.targetLanguage);
     this.render();
     this.bindEvents();
+    this.refreshCacheStats();
   }
 
+  /** Shows the stored values in the form. */
   private render(): void {
-    // Languages
-    this.setSelectValue('sourceLanguage', this.settings.sourceLanguage);
-    this.setSelectValue('targetLanguage', this.settings.targetLanguage);
-
-    // Provider
-    this.setSelectValue('translationProvider', this.settings.translationProvider);
+    for (const field of FIELDS) this.setFieldValue(field.id, field.type, this.settings[field.id]);
     this.renderProviderConfig();
     this.updateProviderFields();
-
-    // Appearance
-    this.setRangeValue('originalFontSize', this.settings.originalFontSize);
-    this.setRangeValue('translationFontSize', this.settings.translationFontSize);
-    this.setColorValue('originalColor', this.settings.originalColor);
-    this.setColorValue('translationColor', this.settings.translationColor);
-    this.setRangeValue('backgroundOpacity', this.settings.backgroundOpacity);
-
-    // Position
-    this.setSelectValue('subtitlePosition', this.settings.subtitlePosition);
-    this.setRangeValue('customVerticalOffset', this.settings.customVerticalOffset);
-    this.setRangeValue('subtitleMaxWidth', this.settings.subtitleMaxWidth);
     this.updatePositionFields();
-
-    // Behavior
-    this.setSelectValue('maxConcurrentTranslations', String(this.settings.maxConcurrentTranslations));
-    this.setCheckboxValue('preFetchNext', this.settings.preFetchNext);
-    this.setCheckboxValue('smartSentenceMode', this.settings.smartSentenceMode);
-    this.setCheckboxValue('restorePunctuation', this.settings.restorePunctuation);
-
-    // Cache
-    this.setInputValue('cacheTTLDays', String(this.settings.cacheTTLDays));
-    this.setInputValue('maxCacheEntries', String(this.settings.maxCacheEntries));
-
-    // QA Mode
-    this.setCheckboxValue('qaLearningMode', this.settings.qaLearningMode);
   }
 
   private bindEvents(): void {
-    // Select and input fields
-    const fields: Array<{ id: string; key: keyof ExtensionSettings; type: 'select' | 'text' | 'number' | 'checkbox' | 'range' | 'color' }> = [
-      { id: 'sourceLanguage', key: 'sourceLanguage', type: 'select' },
-      { id: 'targetLanguage', key: 'targetLanguage', type: 'select' },
-      { id: 'translationProvider', key: 'translationProvider', type: 'select' },
-      { id: 'originalFontSize', key: 'originalFontSize', type: 'range' },
-      { id: 'translationFontSize', key: 'translationFontSize', type: 'range' },
-      { id: 'originalColor', key: 'originalColor', type: 'color' },
-      { id: 'translationColor', key: 'translationColor', type: 'color' },
-      { id: 'backgroundOpacity', key: 'backgroundOpacity', type: 'range' },
-      { id: 'subtitlePosition', key: 'subtitlePosition', type: 'select' },
-      { id: 'customVerticalOffset', key: 'customVerticalOffset', type: 'range' },
-      { id: 'subtitleMaxWidth', key: 'subtitleMaxWidth', type: 'range' },
-      { id: 'maxConcurrentTranslations', key: 'maxConcurrentTranslations', type: 'select' },
-      { id: 'preFetchNext', key: 'preFetchNext', type: 'checkbox' },
-      { id: 'smartSentenceMode', key: 'smartSentenceMode', type: 'checkbox' },
-      { id: 'restorePunctuation', key: 'restorePunctuation', type: 'checkbox' },
-      { id: 'cacheTTLDays', key: 'cacheTTLDays', type: 'number' },
-      { id: 'maxCacheEntries', key: 'maxCacheEntries', type: 'number' },
-      { id: 'qaLearningMode', key: 'qaLearningMode', type: 'checkbox' },
-    ];
-
-    for (const field of fields) {
-      const el = document.getElementById(field.id);
+    for (const field of FIELDS) {
+      const el = document.getElementById(field.id) as HTMLInputElement | HTMLSelectElement | null;
       if (!el) continue;
 
-      const eventType = field.type === 'range' || field.type === 'color' ? 'input' : 'change';
+      const live = field.type === 'range' || field.type === 'color';
+      const save = live
+        ? debounce(() => this.saveSetting(field.id, this.readFieldValue(el, field.type)), LIVE_INPUT_SAVE_DELAY_MS)
+        : () => this.saveSetting(field.id, this.readFieldValue(el, field.type));
 
-      el.addEventListener(eventType, () => {
-        let value: string | number | boolean;
-
-        if (field.type === 'checkbox') {
-          value = (el as HTMLInputElement).checked;
-        } else if (field.type === 'range' || field.type === 'number') {
-          value = parseInt((el as HTMLInputElement).value, 10);
-        } else {
-          value = (el as HTMLInputElement).value;
-        }
-
-        // Update display values for ranges
-        const displayEl = document.getElementById(`${field.id}Val`);
-        if (displayEl) {
-          displayEl.textContent = String(value);
-        }
-
-        // Color display
-        if (field.type === 'color') {
-          const colorDisplay = document.getElementById(`${field.id}Val`);
-          if (colorDisplay) colorDisplay.textContent = value as string;
-        }
-
-        this.saveSetting(field.key, value);
+      el.addEventListener(live ? 'input' : 'change', () => {
+        // Update the displayed value right away; the stored value follows.
+        const display = document.getElementById(`${field.id}Val`);
+        if (display) display.textContent = String(this.readFieldValue(el, field.type));
+        save();
       });
     }
 
@@ -119,15 +90,14 @@ class OptionsController {
     for (const field of PROVIDER_FIELDS) {
       document.getElementById(field.id)?.addEventListener('change', async (e) => {
         const value = (e.target as HTMLInputElement).value.trim();
-        this.settings = await saveProviderConfig(this.settings.translationProvider, { [field.key]: value });
+        if (field.key === 'apiEndpoint' && value && !(await this.requestEndpointAccess(value))) return;
+        this.settings = await sendToBackground('UPDATE_PROVIDER_CONFIG', {
+          provider: this.settings.translationProvider,
+          config: { [field.key]: value },
+        });
         this.showSaveStatus();
       });
     }
-
-    // Provider change — show/hide API fields and load that provider's credentials
-    document.getElementById('translationProvider')?.addEventListener('change', () => {
-      this.updateProviderFields();
-    });
 
     // Position change — show/hide custom offset
     document.getElementById('subtitlePosition')?.addEventListener('change', () => {
@@ -136,10 +106,13 @@ class OptionsController {
 
     // Clear cache
     document.getElementById('clearCache')?.addEventListener('click', async () => {
-      await chrome.runtime.sendMessage({ action: 'CLEAR_CACHE' });
-      const statsEl = document.getElementById('cacheStats');
-      if (statsEl) statsEl.textContent = 'Cache cleared';
-      this.showSaveStatus('Cache cleared');
+      try {
+        await sendToBackground('CLEAR_CACHE');
+        this.showSaveStatus('Cache cleared');
+      } catch (err) {
+        this.showSaveStatus(`Could not clear cache: ${err instanceof Error ? err.message : err}`);
+      }
+      this.refreshCacheStats();
     });
 
     // Open dictionary
@@ -149,16 +122,82 @@ class OptionsController {
     });
   }
 
-  private async saveSetting(key: keyof ExtensionSettings, value: unknown): Promise<void> {
-    const update = { [key]: value } as Partial<ExtensionSettings>;
-    this.settings = await saveSettings(update);
-    if (key === 'translationProvider') this.renderProviderConfig();
+  private readFieldValue(el: HTMLInputElement | HTMLSelectElement, type: FieldType): string | number | boolean {
+    if (type === 'checkbox') return (el as HTMLInputElement).checked;
+    if (type === 'range' || type === 'number') return Number(el.value);
+    return el.value;
+  }
+
+  private setFieldValue(id: string, type: FieldType, value: unknown): void {
+    const el = document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
+    if (el) {
+      if (type === 'checkbox') (el as HTMLInputElement).checked = Boolean(value);
+      else el.value = String(value);
+    }
+    const display = document.getElementById(`${id}Val`);
+    if (display) display.textContent = String(value);
+  }
+
+  private async saveSetting(key: SettingKey, value: unknown): Promise<void> {
+    try {
+      this.settings = await sendToBackground('UPDATE_SETTINGS', { [key]: value } as Partial<PublicSettings>);
+    } catch (err) {
+      this.showSaveStatus(`Not saved: ${err instanceof Error ? err.message : err}`);
+      return;
+    }
+    // The background clamps invalid input (e.g. an empty number field) — show the stored value.
+    const field = FIELDS.find((f) => f.id === key);
+    if (field) this.setFieldValue(key, field.type, this.settings[key]);
+    if (key === 'translationProvider') {
+      this.renderProviderConfig();
+      this.updateProviderFields();
+    }
     this.showSaveStatus();
+  }
+
+  /**
+   * Custom endpoints on hosts outside the manifest's host_permissions need an optional host
+   * permission, or the service worker's requests would be blocked by CORS.
+   */
+  private async requestEndpointAccess(endpoint: string): Promise<boolean> {
+    const hint = document.getElementById('apiEndpointHint');
+    let origin: string;
+    try {
+      origin = `${new URL(endpoint).origin}/*`;
+    } catch {
+      if (hint) hint.textContent = 'Not a valid URL.';
+      return false;
+    }
+    try {
+      const granted =
+        (await chrome.permissions.contains({ origins: [origin] })) || (await chrome.permissions.request({ origins: [origin] }));
+      if (hint) hint.textContent = granted ? `Access to ${origin} granted.` : `Access to ${origin} was not granted; the endpoint was not saved.`;
+      return granted;
+    } catch (err) {
+      // Non-https hosts other than localhost are not requestable (and are ignored by the providers).
+      if (hint) hint.textContent = `Cannot use this endpoint: ${err instanceof Error ? err.message : err}`;
+      return false;
+    }
+  }
+
+  private async refreshCacheStats(): Promise<void> {
+    const el = document.getElementById('cacheStats');
+    if (!el) return;
+    try {
+      const { count, oldestTimestamp } = await sendToBackground('GET_CACHE_STATS');
+      const since = oldestTimestamp ? `, oldest from ${new Date(oldestTimestamp).toLocaleDateString()}` : '';
+      el.textContent = `${count.toLocaleString()} cached translation${count === 1 ? '' : 's'}${since}`;
+    } catch {
+      el.textContent = 'Cache stats unavailable';
+    }
   }
 
   private renderProviderConfig(): void {
     const config = getProviderConfig(this.settings);
-    for (const field of PROVIDER_FIELDS) this.setInputValue(field.id, config[field.key]);
+    for (const field of PROVIDER_FIELDS) {
+      const el = document.getElementById(field.id) as HTMLInputElement | null;
+      if (el) el.value = config[field.key];
+    }
   }
 
   private showSaveStatus(message?: string): void {
@@ -175,8 +214,8 @@ class OptionsController {
   }
 
   private updateProviderFields(): void {
-    const provider = (document.getElementById('translationProvider') as HTMLSelectElement)?.value;
-    const needsKey = !['google-free', 'chrome-builtin'].includes(provider);
+    const provider = this.settings.translationProvider;
+    const usesKey = provider !== 'google-free';
 
     const apiKeyGroup = document.getElementById('apiKeyGroup');
     const apiEndpointGroup = document.getElementById('apiEndpointGroup');
@@ -184,8 +223,8 @@ class OptionsController {
     const apiKeyHint = document.getElementById('apiKeyHint');
     const modelInput = document.getElementById('apiModel') as HTMLInputElement | null;
 
-    if (apiKeyGroup) apiKeyGroup.style.display = needsKey ? '' : 'none';
-    if (apiEndpointGroup) apiEndpointGroup.style.display = needsKey ? '' : 'none';
+    if (apiKeyGroup) apiKeyGroup.style.display = usesKey ? '' : 'none';
+    if (apiEndpointGroup) apiEndpointGroup.style.display = usesKey ? '' : 'none';
     if (apiModelGroup) apiModelGroup.style.display = ['openai', 'gemini'].includes(provider) ? '' : 'none';
 
     if (modelInput) {
@@ -194,16 +233,20 @@ class OptionsController {
     }
 
     if (apiKeyHint) {
+      const link = (href: string, text: string) =>
+        `<a href="${href}" target="_blank" style="color: #60a5fa; text-decoration: underline;">${text}</a>`;
       if (provider === 'gemini') {
-        apiKeyHint.innerHTML = 'Get your free key at <a href="https://aistudio.google.com/apikey" target="_blank" style="color: #60a5fa; text-decoration: underline;">aistudio.google.com/apikey</a>. Endpoint and model can be left empty.';
+        apiKeyHint.innerHTML = `Get your free key at ${link('https://aistudio.google.com/apikey', 'aistudio.google.com/apikey')}. Endpoint and model can be left empty.`;
       } else if (provider === 'openai') {
-        apiKeyHint.innerHTML = 'Get your key at <a href="https://platform.openai.com/api-keys" target="_blank" style="color: #60a5fa; text-decoration: underline;">platform.openai.com/api-keys</a>. Endpoint and model can be left empty.';
+        apiKeyHint.innerHTML = `Get your key at ${link('https://platform.openai.com/api-keys', 'platform.openai.com/api-keys')}. Endpoint and model can be left empty.`;
       } else if (provider === 'deepl') {
-        apiKeyHint.innerHTML = 'Get a key at <a href="https://www.deepl.com/pro-api" target="_blank" style="color: #60a5fa; text-decoration: underline;">deepl.com/pro-api</a> (500k chars/mo free).';
+        apiKeyHint.innerHTML = `Get a key at ${link('https://www.deepl.com/pro-api', 'deepl.com/pro-api')} (500k chars/mo free).`;
       } else if (provider === 'google-cloud') {
-        apiKeyHint.innerHTML = 'Get a Cloud API key at <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color: #60a5fa; text-decoration: underline;">console.cloud.google.com</a>.';
+        apiKeyHint.innerHTML = `Get a Cloud API key at ${link('https://console.cloud.google.com/apis/credentials', 'console.cloud.google.com')}.`;
       } else {
-        apiKeyHint.textContent = 'Stored locally, never sent anywhere except your chosen provider.';
+        apiKeyHint.textContent = PROVIDERS_REQUIRING_KEY.has(provider)
+          ? 'Stored in this browser profile and sent only to the selected provider.'
+          : 'Optional. Stored in this browser profile and sent only to the selected provider.';
       }
     }
   }
@@ -214,36 +257,6 @@ class OptionsController {
     if (customGroup) {
       customGroup.style.display = position === 'custom' ? '' : 'none';
     }
-  }
-
-  // Helper methods
-  private setSelectValue(id: string, value: string): void {
-    const el = document.getElementById(id) as HTMLSelectElement | null;
-    if (el) el.value = value;
-  }
-
-  private setInputValue(id: string, value: string): void {
-    const el = document.getElementById(id) as HTMLInputElement | null;
-    if (el) el.value = value;
-  }
-
-  private setRangeValue(id: string, value: number): void {
-    const el = document.getElementById(id) as HTMLInputElement | null;
-    if (el) el.value = String(value);
-    const displayEl = document.getElementById(`${id}Val`);
-    if (displayEl) displayEl.textContent = String(value);
-  }
-
-  private setColorValue(id: string, value: string): void {
-    const el = document.getElementById(id) as HTMLInputElement | null;
-    if (el) el.value = value;
-    const displayEl = document.getElementById(`${id}Val`);
-    if (displayEl) displayEl.textContent = value;
-  }
-
-  private setCheckboxValue(id: string, value: boolean): void {
-    const el = document.getElementById(id) as HTMLInputElement | null;
-    if (el) el.checked = value;
   }
 }
 

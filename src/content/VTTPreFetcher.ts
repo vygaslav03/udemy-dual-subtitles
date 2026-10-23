@@ -17,6 +17,7 @@ import {
   VTT_LOAD_RETRY_MS,
 } from '../shared/constants';
 import { cleanCueText, log, logError } from '../shared/utils';
+import { MessageError, sendToBackground } from '../shared/messages';
 import { parseWebVTT } from '../subtitles/VttParser';
 import { assembleUnits, findActiveIndex, findUpcomingIndex, type TimedText } from '../subtitles/SentenceAssembler';
 import { pickSourceTrack } from '../subtitles/trackSelection';
@@ -151,19 +152,11 @@ export class VTTPreFetcher {
       // Content script fetch restricted by CORS, fallback to background service worker
     }
 
-    return new Promise<string | null>((resolve) => {
-      try {
-        chrome.runtime.sendMessage({ action: 'FETCH_VTT', payload: { url } }, (response) => {
-          if (chrome.runtime.lastError) {
-            resolve(null);
-            return;
-          }
-          resolve(response?.success && typeof response.data === 'string' ? response.data : null);
-        });
-      } catch {
-        resolve(null);
-      }
-    });
+    try {
+      return await sendToBackground('FETCH_VTT', { url });
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -269,7 +262,7 @@ export class VTTPreFetcher {
           for (const seg of res.segments) if (!seg.text) this.preFetchedTexts.delete(request.segments[seg.id - 1]?.text);
         },
         (err) => {
-          if (!(err as { cancelled?: boolean })?.cancelled) logError('VTTPreFetcher: pre-fetch batch failed:', err);
+          if (!(err instanceof MessageError && err.cancelled)) logError('VTTPreFetcher: pre-fetch batch failed:', err);
           for (const seg of group.segments) this.preFetchedTexts.delete(seg.text);
         }
       );
@@ -286,7 +279,7 @@ export function previousTranslationsFor(
   previousContext: string[] | undefined,
   source: LanguageCode,
   target: LanguageCode,
-  client: TranslationClient
+  client: Pick<TranslationClient, 'getCached'>
 ): string[] {
   return (previousContext || [])
     .map((text) => client.getCached(text, source, target)?.translatedText || '')

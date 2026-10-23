@@ -1,16 +1,16 @@
 /**
  * Dictionary Page Script — Udemy Dual Subtitles.
+ *
+ * Reads the dictionary from storage (trusted extension page); deletions go through the background.
  */
-import {
-  getDictionaryWords,
-  deleteDictionaryWord,
-  searchDictionary,
-  exportDictionaryToCsv,
-} from '../shared/storage';
+import { exportDictionaryToCsv, onDictionaryChanged, readDictionary, searchEntries } from '../shared/storage';
+import { sendToBackground } from '../shared/messages';
+import { escapeHtml } from '../shared/utils';
 import type { DictionaryEntry } from '../shared/types';
 
 class DictionaryController {
   private allWords: DictionaryEntry[] = [];
+  private query = '';
 
   async init(): Promise<void> {
     await this.loadWords();
@@ -18,21 +18,21 @@ class DictionaryController {
   }
 
   private async loadWords(): Promise<void> {
-    this.allWords = await getDictionaryWords();
-    this.renderWords(this.allWords);
+    this.allWords = await readDictionary();
+    this.render();
+  }
+
+  /** Renders the words matching the current search (kept across deletions and live updates). */
+  private render(): void {
+    this.renderWords(searchEntries(this.allWords, this.query));
   }
 
   private bindEvents(): void {
     // Search
-    const searchInput = document.getElementById('searchInput') as HTMLInputElement;
-    searchInput?.addEventListener('input', async () => {
-      const query = searchInput.value.trim();
-      if (query) {
-        const results = await searchDictionary(query);
-        this.renderWords(results);
-      } else {
-        this.renderWords(this.allWords);
-      }
+    const searchInput = document.getElementById('searchInput') as HTMLInputElement | null;
+    searchInput?.addEventListener('input', () => {
+      this.query = searchInput.value;
+      this.render();
     });
 
     // Export CSV
@@ -40,12 +40,18 @@ class DictionaryController {
       this.exportCsv();
     });
 
-    // Auto-update when words are added/removed from content script
-    chrome.storage.onChanged.addListener((changes, area) => {
-      if (area === 'local' && changes['uds_dictionary']) {
-        this.loadWords();
-      }
+    // Delete (one delegated listener for all cards)
+    document.getElementById('wordList')?.addEventListener('click', async (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-delete-id]');
+      const id = btn?.dataset.deleteId;
+      if (!id) return;
+      await sendToBackground('DELETE_WORD', { id });
+      this.allWords = this.allWords.filter((w) => w.id !== id);
+      this.render();
     });
+
+    // Auto-update when words are added from a Udemy tab
+    onDictionaryChanged(() => this.loadWords());
   }
 
   private renderWords(words: DictionaryEntry[]): void {
@@ -67,16 +73,6 @@ class DictionaryController {
     }
 
     container.innerHTML = words.map((word) => this.renderWordCard(word)).join('');
-
-    // Bind delete buttons
-    container.querySelectorAll('[data-delete-id]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const id = btn.getAttribute('data-delete-id')!;
-        await deleteDictionaryWord(id);
-        this.allWords = this.allWords.filter((w) => w.id !== id);
-        this.renderWords(this.allWords);
-      });
-    });
   }
 
   private renderWordCard(entry: DictionaryEntry): string {
@@ -85,12 +81,6 @@ class DictionaryController {
       day: 'numeric',
       year: 'numeric',
     });
-
-    const escapeHtml = (s: string) => {
-      const div = document.createElement('div');
-      div.textContent = s;
-      return div.innerHTML;
-    };
 
     let qaSection = '';
     if (entry.qaMeaning) {
@@ -117,7 +107,7 @@ class DictionaryController {
         ${exampleSection}
         <div class="word-meta">
           <span class="word-date">${date}</span>
-          <button class="word-delete" data-delete-id="${entry.id}">🗑️ Delete</button>
+          <button class="word-delete" data-delete-id="${escapeHtml(entry.id)}">🗑️ Delete</button>
         </div>
       </div>
     `;
@@ -136,7 +126,8 @@ class DictionaryController {
     link.href = url;
     link.download = `qa-dictionary-${new Date().toISOString().split('T')[0]}.csv`;
     link.click();
-    URL.revokeObjectURL(url);
+    // Revoke after the download has started
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 }
 

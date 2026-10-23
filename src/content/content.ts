@@ -5,27 +5,28 @@
  * It runs only on udemy.com pages.
  *
  * Flow:
- * 1. Load settings
+ * 1. Get credential-free settings from the background (this script never touches chrome.storage,
+ *    so API keys never reach the Udemy page process); later changes are pushed as SETTINGS_CHANGED
  * 2. Start SubtitleDetector (with retries & container awareness)
  * 3. Per detected player, start a session: all listeners/loops are bound to one AbortController
  * 4. Timeline source: VTT cues (merged into sentence units) driven by the video clock;
  *    the DOM caption observer is used only while no VTT timeline is available
  * 5. Mount SubtitleRenderer (handles dual display + native subtitle hiding)
- * 6. NavigationWatcher + URL_CHANGED from background → re-initialize on lesson change
- * 7. SelectionTranslator + WordTooltip with TranslationClient
+ * 6. URL_CHANGED from the background → re-initialize on lesson change
+ * 7. LiveTranslator translates the current subtitle; SelectionTranslator + WordTooltip on demand
  */
 import { SubtitleDetector, type DetectionResult } from './SubtitleDetector';
 import { SubtitleObserver } from './SubtitleObserver';
 import { SubtitleRenderer } from './SubtitleRenderer';
-import { NavigationWatcher } from './NavigationWatcher';
 import { SelectionTranslator } from './SelectionTranslator';
 import { WordTooltip } from './WordTooltip';
 import { SentenceSegmenter } from './SentenceSegmenter';
-import { VTTPreFetcher, previousTranslationsFor } from './VTTPreFetcher';
+import { VTTPreFetcher } from './VTTPreFetcher';
 import { CueGrouper } from './CueGrouper';
-import { TranslationClient, TranslationRequestError } from '../translation/TranslationClient';
-import { getProviderConfig, loadSettings, onCacheCleared, onSettingsChanged, saveDictionaryWord } from '../shared/storage';
-import type { ExtensionSettings } from '../shared/types';
+import { LiveTranslator } from './LiveTranslator';
+import { TranslationClient } from '../translation/TranslationClient';
+import { sendToBackground, type Message, type TabAction, type TabRequests } from '../shared/messages';
+import type { MessageResponse, PublicSettings } from '../shared/types';
 import { debounce, isUdemyCoursePage, lessonKey, log, logError, logWarn } from '../shared/utils';
 import { REINIT_DELAY_MS, SUBTITLE_DEBOUNCE_MS } from '../shared/constants';
 import { isVttResourceUrl } from '../subtitles/vttMatching';
@@ -38,14 +39,14 @@ type VideoWithFrameCallback = HTMLVideoElement & {
 };
 
 class UdemyDualSubtitles {
-  private settings!: ExtensionSettings;
+  private settings!: PublicSettings;
   private detector = new SubtitleDetector();
   private observer!: SubtitleObserver;
   private renderer!: SubtitleRenderer;
-  private navigationWatcher!: NavigationWatcher;
   private selectionTranslator!: SelectionTranslator;
   private wordTooltip!: WordTooltip;
   private translationClient = new TranslationClient();
+  private live!: LiveTranslator;
   private segmenter = new SentenceSegmenter();
   private vtt = new VTTPreFetcher();
 
@@ -58,40 +59,44 @@ class UdemyDualSubtitles {
   private lastSubtitleText = '';
   /** Last caption text rendered by the Udemy player (used to identify its caption file) */
   private lastDomText = '';
-  private previousText = '';
-  private activeTranslationId = 0;
   private lastPrefetchAt = 0;
 
   async init(): Promise<void> {
     log('Initializing Udemy Dual Subtitles...');
 
     try {
-      // 1. Load settings
-      this.settings = await loadSettings();
+      // 1. Load settings (credential-free view)
+      this.settings = await sendToBackground('GET_SETTINGS');
       this.vtt.setSentenceMode(this.settings.smartSentenceMode);
       log(`Settings loaded. Enabled: ${this.settings.enabled}, Provider: ${this.settings.translationProvider}`);
 
-      // 2. Initialize SubtitleRenderer
+      // 2. Initialize SubtitleRenderer and the live translation pipeline
       this.renderer = new SubtitleRenderer(this.settings);
       this.renderer.onRetry(() => this.refreshCurrent());
+      this.live = new LiveTranslator({
+        client: this.translationClient,
+        render: (state) => this.renderer.update(state),
+        batchAround: (source, target) =>
+          this.vtt.hasCues() && this.video
+            ? CueGrouper.createBatchAtTime(this.vtt.getUnits(), this.video.currentTime, source, target, 'high')
+            : null,
+        upcomingText: () => (this.video ? this.vtt.getUpcomingUnit(this.video.currentTime)?.text : undefined),
+        onRendered: () => this.preFetchUpcoming(),
+      });
 
       // 3. DOM caption observer (fallback source when no VTT timeline is available)
       this.observer = new SubtitleObserver(
         debounce((text: string) => this.onDomSubtitle(text), SUBTITLE_DEBOUNCE_MS)
       );
 
-      // 4. SPA navigation (lesson changes)
-      this.navigationWatcher = new NavigationWatcher((url) => this.handleNavigation(url));
-      this.navigationWatcher.start();
-
-      // 5. Initialize SelectionTranslator
+      // 4. Initialize SelectionTranslator
       this.selectionTranslator = new SelectionTranslator(this.translationClient, this.settings);
       this.selectionTranslator.onSaveWord((word, translation) => {
         this.saveWord(word, translation, '', '');
       });
       this.selectionTranslator.init();
 
-      // 6. Initialize WordTooltip (QA Learning Mode)
+      // 5. Initialize WordTooltip (QA Learning Mode)
       this.wordTooltip = new WordTooltip(this.translationClient, this.settings);
       this.wordTooltip.onSaveWord((word, translation, qaMeaning, example) => {
         this.saveWord(word, translation, qaMeaning, example);
@@ -100,23 +105,17 @@ class UdemyDualSubtitles {
         this.wordTooltip.enable();
       }
 
-      // 7. Listen for settings changes and cache clears
-      onSettingsChanged((newSettings, oldSettings) => this.onSettingsChanged(newSettings, oldSettings));
-      onCacheCleared(() => {
-        this.translationClient.clearMemCache();
-        this.vtt.clearInFlight();
-      });
-
-      // 8. Listen for messages from popup/background
-      chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-        this.handleMessage(message, sendResponse);
+      // 6. Messages from the background and the popup (settings pushes, navigation, status)
+      chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) => {
+        if (sender.id !== chrome.runtime.id || typeof message?.action !== 'string') return false;
+        this.handleMessage(message as Message<TabAction>, sendResponse);
         return false; // responses are sent synchronously
       });
 
-      // 9. Caption files downloaded by the player (Udemy renders captions itself, without <track>)
+      // 7. Caption files downloaded by the player (Udemy renders captions itself, without <track>)
       this.watchCaptionFiles();
 
-      // 10. Start subtitle detection
+      // 8. Start subtitle detection
       this.startDetection();
 
       log('Udemy Dual Subtitles initialized successfully');
@@ -220,7 +219,7 @@ class UdemyDualSubtitles {
     video.addEventListener(
       'seeked',
       () => {
-        this.previousText = '';
+        this.live.resetContext();
         this.vtt.clearInFlight();
         this.translationClient.cancelPrefetch();
         this.syncToTime(video.currentTime);
@@ -239,6 +238,7 @@ class UdemyDualSubtitles {
       { signal }
     );
 
+    // Also drives the timeline while paused/seeking and where requestVideoFrameCallback is missing.
     video.addEventListener(
       'timeupdate',
       () => {
@@ -285,8 +285,6 @@ class UdemyDualSubtitles {
 
   /**
    * Lesson changes only: hash/query changes (lecture tabs, `?start=`) are ignored.
-   * Both NavigationWatcher and the background's URL_CHANGED land here, so one change
-   * triggers exactly one re-initialization.
    */
   private handleNavigation(url: string): void {
     const key = lessonKey(url);
@@ -306,10 +304,10 @@ class UdemyDualSubtitles {
     this.detector.reset();
     this.vtt.reset();
     this.translationClient.cancelPrefetch();
-    this.previousText = '';
+    this.live.invalidate();
+    this.live.resetContext();
     this.lastSubtitleText = '';
     this.lastDomText = '';
-    this.activeTranslationId++;
 
     if (this.detectionTimer) {
       clearTimeout(this.detectionTimer);
@@ -391,7 +389,7 @@ class UdemyDualSubtitles {
     this.lastSubtitleText = text;
 
     if (!this.settings.enabled || !text.trim()) {
-      this.activeTranslationId++;
+      this.live.invalidate();
       this.renderer.hide();
       return;
     }
@@ -403,75 +401,7 @@ class UdemyDualSubtitles {
         ? this.segmenter.restorePunctuation(text) || text
         : text;
 
-    this.requestTranslation(text, textToTranslate);
-  }
-
-  /**
-   * Shows the cached translation immediately, otherwise waits for in-flight prefetch,
-   * then a small high-priority batch around the playback position, then a single request.
-   */
-  private async requestTranslation(displayText: string, textToTranslate: string): Promise<void> {
-    const translationId = ++this.activeTranslationId;
-    const { sourceLanguage: source, targetLanguage: target } = this.settings;
-
-    const cached = this.translationClient.getCached(textToTranslate, source, target);
-    if (cached) {
-      this.renderer.update({ originalText: displayText, translatedText: cached.translatedText, status: 'done' });
-      this.previousText = textToTranslate;
-      return;
-    }
-
-    // Cache miss: update immediately so previous subtitles don't linger on screen
-    this.renderer.update({ originalText: displayText, translatedText: '', status: 'translating' });
-
-    try {
-      let translatedText = '';
-
-      // 1. A prefetch batch already translating this text
-      const pending = this.translationClient.getPending(textToTranslate, source, target);
-      if (pending) translatedText = await pending;
-
-      // 2. High-priority batch around the playback position (keeps sentence context)
-      if (!translatedText && this.vtt.hasCues() && this.video && translationId === this.activeTranslationId) {
-        const batchReq = CueGrouper.createBatchAtTime(this.vtt.getUnits(), this.video.currentTime, source, target, 'high');
-        if (batchReq) {
-          batchReq.previousTranslations = previousTranslationsFor(batchReq.previousContext, source, target, this.translationClient);
-          try {
-            await this.translationClient.translateBatch(batchReq);
-            translatedText = this.translationClient.getCached(textToTranslate, source, target)?.translatedText || '';
-          } catch (batchErr) {
-            if (!(batchErr instanceof TranslationRequestError && batchErr.cancelled)) {
-              logWarn('Batch translation failed, falling back to single translation:', batchErr);
-            }
-          }
-        }
-      }
-
-      // 3. Single request with neighbouring context
-      if (!translatedText && translationId === this.activeTranslationId) {
-        const upcoming = this.video ? this.vtt.getUpcomingUnit(this.video.currentTime)?.text : undefined;
-        const result = await this.translationClient.translate(textToTranslate, source, target, {
-          previous: this.previousText,
-          upcoming,
-        });
-        translatedText = result.translatedText;
-      }
-
-      if (translationId !== this.activeTranslationId) return;
-
-      this.previousText = textToTranslate;
-      this.renderer.update({ originalText: displayText, translatedText, status: 'done' });
-      this.preFetchUpcoming();
-    } catch (err) {
-      if (translationId !== this.activeTranslationId) return;
-      if (err instanceof TranslationRequestError && err.cancelled) return;
-      this.renderer.update({
-        originalText: displayText,
-        translatedText: '',
-        status: 'error',
-        errorMessage: err instanceof Error ? err.message : 'Translation unavailable',
-      });
-    }
+    this.live.show(text, textToTranslate, this.settings.sourceLanguage, this.settings.targetLanguage);
   }
 
   /**
@@ -496,15 +426,10 @@ class UdemyDualSubtitles {
   // ============================================================
 
   /**
-   * Handles settings changes from Options page, Popup or keyboard shortcuts.
+   * Applies settings pushed by the background (changed in the options page, popup or by a shortcut).
+   * `translationChanged` covers what this script cannot see itself: model, endpoint and key changes.
    */
-  private onSettingsChanged(newSettings: ExtensionSettings, oldSettings: ExtensionSettings): void {
-    const translationChanged =
-      newSettings.translationProvider !== oldSettings.translationProvider ||
-      newSettings.sourceLanguage !== oldSettings.sourceLanguage ||
-      newSettings.targetLanguage !== oldSettings.targetLanguage ||
-      JSON.stringify(getProviderConfig(newSettings)) !==
-        JSON.stringify(getProviderConfig(oldSettings, newSettings.translationProvider));
+  private onSettingsChanged(newSettings: PublicSettings, oldSettings: PublicSettings, translationChanged: boolean): void {
     const timelineChanged = newSettings.smartSentenceMode !== oldSettings.smartSentenceMode;
     const enabledChanged = newSettings.enabled !== oldSettings.enabled;
 
@@ -537,7 +462,7 @@ class UdemyDualSubtitles {
     }
 
     if (!newSettings.enabled) {
-      this.activeTranslationId++;
+      this.live.invalidate();
       this.renderer.hide();
     } else if (translationChanged || timelineChanged || enabledChanged) {
       this.refreshCurrent();
@@ -548,47 +473,49 @@ class UdemyDualSubtitles {
   }
 
   /**
-   * Handles messages from popup/background.
+   * Handles messages from the background and the popup.
    */
-  private handleMessage(
-    message: { action: string; payload?: unknown },
-    sendResponse: (response: unknown) => void
-  ): void {
+  private handleMessage(message: Message<TabAction>, sendResponse: (response: MessageResponse) => void): void {
+    const ok = <A extends TabAction>(data?: TabRequests[A]['result']) => sendResponse({ success: true, data });
+
     switch (message.action) {
       case 'URL_CHANGED': {
-        const url = (message.payload as { url?: string } | undefined)?.url || window.location.href;
-        this.handleNavigation(url);
-        sendResponse({ success: true });
+        const { url } = (message.payload || {}) as Partial<TabRequests['URL_CHANGED']['payload']>;
+        this.handleNavigation(url || window.location.href);
+        ok();
         break;
       }
 
       case 'VTT_RESOURCE': {
-        const url = (message.payload as { url?: string } | undefined)?.url;
+        const { url } = (message.payload || {}) as Partial<TabRequests['VTT_RESOURCE']['payload']>;
         if (url) this.onCaptionFileUrl(url);
-        sendResponse({ success: true });
+        ok();
         break;
       }
 
-      case 'TOGGLE_TRANSLATION': {
-        const visible = this.renderer.toggleTranslationVisibility();
-        sendResponse({ success: true, data: { visible } });
+      case 'TOGGLE_TRANSLATION':
+        ok<'TOGGLE_TRANSLATION'>({ visible: this.renderer.toggleTranslationVisibility() });
+        break;
+
+      case 'SETTINGS_CHANGED': {
+        const { settings, previous, translationChanged } = message.payload as TabRequests['SETTINGS_CHANGED']['payload'];
+        this.onSettingsChanged(settings, previous, translationChanged);
+        ok();
         break;
       }
 
-      case 'CLEAR_CACHE':
+      case 'CACHE_CLEARED':
         this.translationClient.clearMemCache();
-        sendResponse({ success: true });
+        this.vtt.clearInFlight();
+        ok();
         break;
 
       case 'GET_STATUS':
-        sendResponse({
-          success: true,
-          data: {
-            enabled: this.settings.enabled,
-            detected: this.detector.isValid(),
-            strategy: this.vtt.hasCues() ? 'VTT timeline' : this.detector.getLastResult()?.strategy || 'none',
-            lastText: this.lastSubtitleText,
-          },
+        ok<'GET_STATUS'>({
+          enabled: this.settings.enabled,
+          detected: this.detector.isValid(),
+          strategy: this.vtt.hasCues() ? 'VTT timeline' : this.detector.getLastResult()?.strategy || 'none',
+          lastText: this.lastSubtitleText,
         });
         break;
 
@@ -598,22 +525,11 @@ class UdemyDualSubtitles {
   }
 
   /**
-   * Saves a word to the QA dictionary.
+   * Saves a word to the QA dictionary (written by the background).
    */
-  private async saveWord(
-    word: string,
-    translation: string,
-    qaMeaning: string,
-    example: string
-  ): Promise<void> {
+  private async saveWord(word: string, translation: string, qaMeaning: string, example: string): Promise<void> {
     try {
-      await saveDictionaryWord({
-        word,
-        translation,
-        qaMeaning,
-        example,
-        sourceUrl: window.location.href,
-      });
+      await sendToBackground('SAVE_WORD', { word, translation, qaMeaning, example, sourceUrl: window.location.href });
       log(`Word saved: ${word}`);
     } catch (err) {
       logError('Failed to save word:', err);

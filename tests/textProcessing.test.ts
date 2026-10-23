@@ -12,7 +12,7 @@ import {
   stripWrappingQuotes,
 } from '../src/translation/providerUtils';
 import { decodeHtmlEntities, lessonKey, makeCacheKey } from '../src/shared/utils';
-import { normalizeSettings, getProviderConfig } from '../src/shared/storage';
+import { normalizeSettings, getProviderConfig } from '../src/shared/settings';
 import { SubtitleFormatter } from '../src/content/SubtitleFormatter';
 
 describe('TerminologyProcessor', () => {

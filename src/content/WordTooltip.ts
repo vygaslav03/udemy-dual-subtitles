@@ -7,7 +7,7 @@
  * - Example usage
  * - Save to dictionary button
  */
-import type { ExtensionSettings } from '../shared/types';
+import type { PublicSettings } from '../shared/types';
 import { CSS_PREFIX } from '../shared/constants';
 import { TranslationClient } from '../translation/TranslationClient';
 import { escapeHtml, log } from '../shared/utils';
@@ -51,10 +51,10 @@ const QA_TERMS: Record<string, { meaning: string; example: string }> = {
 export class WordTooltip {
   private tooltip: HTMLElement | null = null;
   private translationManager: TranslationClient;
-  private settings: ExtensionSettings;
+  private settings: PublicSettings;
   private saveWordCallback: ((word: string, translation: string, qaMeaning: string, example: string) => void) | null = null;
 
-  constructor(translationManager: TranslationClient, settings: ExtensionSettings) {
+  constructor(translationManager: TranslationClient, settings: PublicSettings) {
     this.translationManager = translationManager;
     this.settings = settings;
   }
@@ -254,7 +254,7 @@ export class WordTooltip {
   /**
    * Updates settings reference.
    */
-  updateSettings(settings: ExtensionSettings): void {
+  updateSettings(settings: PublicSettings): void {
     this.settings = settings;
   }
 

@@ -13,7 +13,7 @@
         <span class="popup-icon">🎓</span>
         <h1>Udemy Dual Subtitles</h1>
       </div>
-      <div class="popup-version">v1.0.0</div>
+      <div class="popup-version" id="popupVersion"></div>
     </header>
 
     <div class="popup-toggle">
@@ -28,7 +28,7 @@
     </div>
 
     <div class="popup-toggle">
-      <span class="toggle-title" title="Restores punctuation and formats sentences cleanly">Smart Sentences</span>
+      <span class="toggle-title" title="Merges subtitle fragments into whole sentences before translating">Smart Sentences</span>
       <div class="toggle-controls">
         <label class="toggle-switch" for="smartSentenceMode">
           <input type="checkbox" id="smartSentenceMode" checked>
@@ -41,27 +41,11 @@
     <div class="popup-langs">
       <div class="lang-row">
         <span class="lang-label">Source:</span>
-        <select id="sourceLanguage">
-          <option value="en">🇬🇧 English</option>
-          <option value="ru">🇷🇺 Russian</option>
-          <option value="uk">🇺🇦 Ukrainian</option>
-          <option value="pl">🇵🇱 Polish</option>
-          <option value="de">🇩🇪 German</option>
-          <option value="es">🇪🇸 Spanish</option>
-          <option value="fr">🇫🇷 French</option>
-        </select>
+        <select id="sourceLanguage"></select>
       </div>
       <div class="lang-row">
         <span class="lang-label">Translation:</span>
-        <select id="targetLanguage">
-          <option value="en">🇬🇧 English</option>
-          <option value="ru" selected>🇷🇺 Russian</option>
-          <option value="uk">🇺🇦 Ukrainian</option>
-          <option value="pl">🇵🇱 Polish</option>
-          <option value="de">🇩🇪 German</option>
-          <option value="es">🇪🇸 Spanish</option>
-          <option value="fr">🇫🇷 French</option>
-        </select>
+        <select id="targetLanguage"></select>
       </div>
       <div class="lang-row">
         <span class="lang-label">Provider:</span>

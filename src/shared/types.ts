@@ -9,11 +9,11 @@ export interface LanguageOption {
   code: LanguageCode;
   name: string;
   nativeName: string;
+  flag: string;
 }
 
 /** Translation provider identifiers */
 export type TranslationProviderType =
-  | 'chrome-builtin'
   | 'google-free'
   | 'google-cloud'
   | 'deepl'
@@ -53,6 +53,8 @@ export interface ExtensionSettings {
   subtitleMaxWidth: number;     // percentage 50–90
 
   // Translation behavior
+  /** Retry failed requests with Google Translate (free). Off by default: text then leaves the chosen provider. */
+  fallbackToGoogle: boolean;
   maxConcurrentTranslations: number; // 1–5
   preFetchNext: boolean;
   cacheTTLDays: number;        // days
@@ -67,6 +69,17 @@ export interface ExtensionSettings {
   restorePunctuation: boolean;
 
   // Keyboard shortcuts are managed by Chrome commands API
+}
+
+/**
+ * Settings without credentials. This is all a content script ever receives: API keys stay
+ * in the service worker and extension pages and never reach the Udemy page process.
+ */
+export type PublicSettings = Omit<ExtensionSettings, 'providerConfigs'>;
+
+export interface CacheStats {
+  count: number;
+  oldestTimestamp: number | null;
 }
 
 /** A cached translation entry in IndexedDB */
@@ -110,6 +123,8 @@ export interface SubtitleState {
   translatedText: string;
   status: TranslationStatus;
   errorMessage?: string;
+  /** The translation came from the Google fallback, not the configured provider */
+  fallback?: boolean;
 }
 
 /** Subtitle segment for batch translation */

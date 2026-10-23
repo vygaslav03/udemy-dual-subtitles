@@ -5,7 +5,8 @@
  * 1. Cache lookups (in-memory hot cache → IndexedDB), namespaced per provider/model
  * 2. One priority queue with a shared concurrency limit for single and batch jobs
  * 3. In-flight deduplication (with priority promotion)
- * 4. Circuit breaker + fallback to Google Translate, flagged as `fallback`
+ * 4. Circuit breaker + optional fallback to Google Translate (off unless the user enables
+ *    `fallbackToGoogle`), flagged as `fallback`
  * 5. Cancellation (seek / lesson change) via ProviderError('cancelled') — never by
  *    resolving with the untranslated original
  */
@@ -20,6 +21,7 @@ import type {
   BatchPriority,
   TranslatedSegment,
   SubtitleSegment,
+  CacheStats,
 } from '../shared/types';
 import {
   BREAKER_CONFIG_ERROR_MS,
@@ -28,7 +30,6 @@ import {
 } from '../shared/constants';
 import { TranslationCache } from './TranslationCache';
 import { GoogleFreeProvider } from './GoogleFreeProvider';
-import { ChromeBuiltinProvider } from './ChromeBuiltinProvider';
 import { GoogleCloudProvider } from './GoogleCloudProvider';
 import { DeepLProvider } from './DeepLProvider';
 import { OpenAIProvider } from './OpenAIProvider';
@@ -75,7 +76,10 @@ export class TranslationManager {
   private hotCache = new Map<string, TranslationResult>();
 
   /** Circuit breaker: provider → cooldown end timestamp */
-  private circuitBreakers = new Map<TranslationProviderType, number>();
+  private circuitBreakers = new Map<TranslationProviderType, { until: number; error: ProviderError }>();
+
+  /** Whether failures of the configured provider are retried with Google Translate (free) */
+  private fallbackEnabled = false;
 
   constructor(maxConcurrent: number = 2, maxCacheEntries: number = 10000, cacheTTLDays: number = 30) {
     this.maxConcurrent = maxConcurrent;
@@ -83,7 +87,6 @@ export class TranslationManager {
 
     const all: TranslationProvider[] = [
       new GoogleFreeProvider(),
-      new ChromeBuiltinProvider(),
       new GoogleCloudProvider(),
       new DeepLProvider(),
       new OpenAIProvider(),
@@ -113,6 +116,10 @@ export class TranslationManager {
     this.provider = provider;
     this.circuitBreakers.delete(type);
     log(`Translation provider set to: ${provider.name}`);
+  }
+
+  setFallbackEnabled(enabled: boolean): void {
+    this.fallbackEnabled = enabled;
   }
 
   setMaxConcurrent(max: number): void {
@@ -159,13 +166,13 @@ export class TranslationManager {
     context?: { previous?: string; upcoming?: string }
   ): Promise<TranslationResult> {
     const primary = this.provider;
-    const first = this.isTripped(primary) ? this.fallbackProvider : primary;
+    const first = this.pickProvider(primary);
 
     try {
       return await this.translateWith(first, primary, text, source, target, context);
     } catch (err) {
       this.recordFailure(first, err);
-      if (first === this.fallbackProvider) throw err;
+      if (first === this.fallbackProvider || !this.fallbackEnabled) throw err;
 
       try {
         log(`Falling back to ${this.fallbackProvider.name}`);
@@ -258,14 +265,14 @@ export class TranslationManager {
     priority: BatchPriority
   ): Promise<{ segments: TranslatedSegment[]; fallback: boolean }> {
     const primary = this.provider;
-    const first = this.isTripped(primary) ? this.fallbackProvider : primary;
+    const first = this.pickProvider(primary);
     const retries = priority === 'low' ? 1 : 0;
 
     try {
       return { segments: await this.batchWith(first, request, retries), fallback: first !== primary };
     } catch (err) {
       this.recordFailure(first, err);
-      if (first === this.fallbackProvider) throw err;
+      if (first === this.fallbackProvider || !this.fallbackEnabled) throw err;
 
       try {
         log(`Falling back to ${this.fallbackProvider.name} for batch...`);
@@ -468,8 +475,22 @@ export class TranslationManager {
     return provider.isLlm ? text.trim() : TerminologyProcessor.process(text, 'en', target).trim();
   }
 
-  private isTripped(provider: TranslationProvider): boolean {
-    return provider !== this.fallbackProvider && Date.now() < (this.circuitBreakers.get(provider.type) || 0);
+  /**
+   * The provider to try first: the configured one, unless its breaker is open. With an open
+   * breaker the fallback answers if it is enabled; otherwise the request fails right away with
+   * the error that opened the breaker, instead of calling a provider known to be failing.
+   */
+  private pickProvider(primary: TranslationProvider): TranslationProvider {
+    const breaker = primary === this.fallbackProvider ? undefined : this.circuitBreakers.get(primary.type);
+    if (!breaker || Date.now() >= breaker.until) return primary;
+    if (this.fallbackEnabled) return this.fallbackProvider;
+
+    const seconds = Math.ceil((breaker.until - Date.now()) / 1000);
+    throw new ProviderError(
+      breaker.error.kind,
+      `${breaker.error.message} (${primary.name} paused for ${seconds} s)`,
+      breaker.error.status
+    );
   }
 
   private recordFailure(provider: TranslationProvider, err: unknown): void {
@@ -481,7 +502,7 @@ export class TranslationManager {
       : err.kind === 'auth' || err.kind === 'not-found' ? BREAKER_CONFIG_ERROR_MS
       : 0;
     if (cooldown) {
-      this.circuitBreakers.set(provider.type, Date.now() + cooldown);
+      this.circuitBreakers.set(provider.type, { until: Date.now() + cooldown, error: err });
       logWarn(`Tripped circuit breaker for ${provider.name} (${cooldown / 1000}s, ${err.kind})`);
     }
   }
@@ -492,7 +513,7 @@ export class TranslationManager {
     log('Translation cache cleared');
   }
 
-  async getCacheStats(): Promise<{ count: number; oldestTimestamp: number | null }> {
+  async getCacheStats(): Promise<CacheStats> {
     return this.cache.getStats();
   }
 }

@@ -4,7 +4,7 @@
  * When the user selects text on Udemy, shows a small "Translate" button.
  * Clicking it shows the translation in a small popup near the selection.
  */
-import type { ExtensionSettings } from '../shared/types';
+import type { PublicSettings } from '../shared/types';
 import { CSS_PREFIX } from '../shared/constants';
 import { TranslationClient } from '../translation/TranslationClient';
 import { escapeHtml, log } from '../shared/utils';
@@ -13,10 +13,10 @@ export class SelectionTranslator {
   private button: HTMLElement | null = null;
   private popup: HTMLElement | null = null;
   private translationManager: TranslationClient;
-  private settings: ExtensionSettings;
+  private settings: PublicSettings;
   private saveWordCallback: ((word: string, translation: string) => void) | null = null;
 
-  constructor(translationManager: TranslationClient, settings: ExtensionSettings) {
+  constructor(translationManager: TranslationClient, settings: PublicSettings) {
     this.translationManager = translationManager;
     this.settings = settings;
   }
@@ -52,6 +52,8 @@ export class SelectionTranslator {
   };
 
   private checkSelection(): void {
+    // Turning the extension off (popup / Alt+D) also turns off the "Translate" button.
+    if (!this.settings.enabled) return;
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed) return;
 
@@ -205,8 +207,9 @@ export class SelectionTranslator {
   /**
    * Updates settings reference.
    */
-  updateSettings(settings: ExtensionSettings): void {
+  updateSettings(settings: PublicSettings): void {
     this.settings = settings;
+    if (!settings.enabled) this.cleanup();
   }
 
   /**

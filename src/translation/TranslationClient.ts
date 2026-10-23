@@ -1,49 +1,23 @@
 /**
  * TranslationClient — client for content script to request translations.
  *
- * Communicates with Background Service Worker via chrome.runtime.sendMessage.
+ * Communicates with Background Service Worker via typed messages (shared/messages.ts).
  * This bypasses Udemy's strict Content Security Policy (connect-src) and CORS.
- * Includes a fast in-memory cache and per-text in-flight tracking in the content script.
+ * Includes a fast in-memory cache and per-text in-flight tracking in the content script:
+ * the display must look translations up synchronously, within a video frame, which a
+ * round-trip to the service worker cannot do.
  */
 import type {
   LanguageCode,
   TranslationResult,
   BatchTranslationRequest,
   BatchTranslationResponse,
-  MessageResponse,
 } from '../shared/types';
 import { FALLBACK_MEM_CACHE_TTL_MS, MEM_CACHE_TTL_MS } from '../shared/constants';
 import { makeCacheKey } from '../shared/utils';
+import { MessageError, sendToBackground, type TranslationContext } from '../shared/messages';
 
 const MAX_MEM_ENTRIES = 500;
-
-export class TranslationRequestError extends Error {
-  constructor(message: string, readonly code?: string) {
-    super(message);
-    this.name = 'TranslationRequestError';
-  }
-
-  get cancelled(): boolean {
-    return this.code === 'cancelled';
-  }
-}
-
-function sendMessage<T>(message: { action: string; payload?: unknown }): Promise<MessageResponse<T>> {
-  return new Promise((resolve, reject) => {
-    try {
-      chrome.runtime.sendMessage(message, (response: MessageResponse<T> | undefined) => {
-        if (chrome.runtime.lastError) {
-          reject(new TranslationRequestError(chrome.runtime.lastError.message || 'Background worker unavailable'));
-          return;
-        }
-        resolve(response || { success: false, error: 'No response from background' });
-      });
-    } catch (err) {
-      // "Extension context invalidated" after the extension is reloaded
-      reject(new TranslationRequestError(err instanceof Error ? err.message : 'Background worker unavailable'));
-    }
-  });
-}
 
 export class TranslationClient {
   private memCache = new Map<string, { result: TranslationResult; expiresAt: number }>();
@@ -77,7 +51,7 @@ export class TranslationClient {
     text: string,
     source: LanguageCode,
     target: LanguageCode,
-    context?: { previous?: string; upcoming?: string }
+    context?: TranslationContext
   ): Promise<TranslationResult> {
     const trimmed = text.trim();
     if (!trimmed) {
@@ -87,18 +61,9 @@ export class TranslationClient {
     const cached = this.getCached(trimmed, source, target);
     if (cached) return cached;
 
-    const response = await sendMessage<TranslationResult>({
-      action: 'TRANSLATE_TEXT',
-      payload: { text: trimmed, source, target, context },
-    });
-
-    if (!response.success || !response.data) {
-      throw new TranslationRequestError(response.error || 'Translation failed', response.errorCode);
-    }
-
-    const result = response.data;
-    if (!result.translatedText) {
-      throw new TranslationRequestError('Empty translation');
+    const result = await sendToBackground('TRANSLATE_TEXT', { text: trimmed, source, target, context });
+    if (!result?.translatedText) {
+      throw new MessageError('Empty translation');
     }
     this.setMemCache(makeCacheKey(source, target, trimmed), result);
     return result;
@@ -113,28 +78,22 @@ export class TranslationClient {
       return { segments: [], provider: 'google-free', fromCache: false };
     }
 
-    const promise = sendMessage<BatchTranslationResponse>({ action: 'TRANSLATE_BATCH', payload: request }).then(
-      (response) => {
-        if (!response.success || !response.data) {
-          throw new TranslationRequestError(response.error || 'Batch translation failed', response.errorCode);
+    const promise = sendToBackground('TRANSLATE_BATCH', request).then((res) => {
+      const byId = new Map(res.segments.map((s) => [s.id, s.text]));
+      for (const orig of request.segments) {
+        const translatedText = byId.get(orig.id);
+        if (orig.text.trim() && translatedText) {
+          this.setMemCache(makeCacheKey(request.source, request.target, orig.text.trim()), {
+            originalText: orig.text,
+            translatedText,
+            provider: res.provider,
+            fromCache: res.fromCache || false,
+            fallback: res.fallback,
+          });
         }
-        const res = response.data;
-        const byId = new Map(res.segments.map((s) => [s.id, s.text]));
-        for (const orig of request.segments) {
-          const translatedText = byId.get(orig.id);
-          if (orig.text.trim() && translatedText) {
-            this.setMemCache(makeCacheKey(request.source, request.target, orig.text.trim()), {
-              originalText: orig.text,
-              translatedText,
-              provider: res.provider,
-              fromCache: res.fromCache || false,
-              fallback: res.fallback,
-            });
-          }
-        }
-        return res;
       }
-    );
+      return res;
+    });
 
     // Register per-text pending promises so the live display can await prefetch instead of duplicating it.
     const keys: string[] = [];
@@ -160,7 +119,7 @@ export class TranslationClient {
    * Cancels low-priority prefetch translation jobs in the background queue.
    */
   cancelPrefetch(): void {
-    sendMessage({ action: 'CANCEL_PREFETCH' }).catch(() => {
+    sendToBackground('CANCEL_PREFETCH').catch(() => {
       // Ignore errors if runtime is disconnected
     });
   }

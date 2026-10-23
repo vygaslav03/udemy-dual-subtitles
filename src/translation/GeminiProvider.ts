@@ -14,7 +14,6 @@ import {
   LLM_TIMEOUT_MS,
   LLM_BATCH_TIMEOUT_MS,
   PROMPT_VERSION,
-  SUPPORTED_LANGUAGES,
 } from '../shared/constants';
 import { logWarn } from '../shared/utils';
 import {
@@ -58,10 +57,6 @@ export class GeminiProvider implements TranslationProvider {
 
   private get endpoint(): string {
     return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.model)}:generateContent`;
-  }
-
-  private getLanguageName(code: LanguageCode): string {
-    return SUPPORTED_LANGUAGES.find((l) => l.code === code)?.name || code;
   }
 
   private async generate(
@@ -133,7 +128,7 @@ export class GeminiProvider implements TranslationProvider {
     context?: { previous?: string; upcoming?: string }
   ): Promise<string> {
     const content = await this.generate(
-      getSubtitleSystemPrompt(this.getLanguageName(source), this.getLanguageName(target)),
+      getSubtitleSystemPrompt(source, target),
       buildSubtitleUserPrompt(text, context),
       // Output tokens include the reasoning tokens of thinking models — leave headroom.
       { maxOutputTokens: 2048 },
@@ -147,10 +142,9 @@ export class GeminiProvider implements TranslationProvider {
   async translateBatch(request: BatchTranslationRequest): Promise<TranslatedSegment[]> {
     if (!request.segments || request.segments.length === 0) return [];
 
-    const targetName = this.getLanguageName(request.target);
     const content = await this.generate(
-      getBatchSubtitleSystemPrompt(this.getLanguageName(request.source), targetName),
-      buildBatchSubtitleUserPrompt(request, targetName),
+      getBatchSubtitleSystemPrompt(request.source, request.target),
+      buildBatchSubtitleUserPrompt(request),
       {
         maxOutputTokens: 8192,
         responseMimeType: 'application/json',

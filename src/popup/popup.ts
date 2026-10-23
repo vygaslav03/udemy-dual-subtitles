@@ -1,29 +1,37 @@
 /**
  * Popup Script — Udemy Dual Subtitles.
+ *
+ * Reads settings from storage (trusted extension page); writes go through the background.
  */
-import { getProviderConfig, loadSettings, saveProviderConfig, saveSettings } from '../shared/storage';
-import type { ExtensionSettings, LanguageCode, TranslationProviderType } from '../shared/types';
-import { GEMINI_DEFAULT_MODEL, OPENAI_DEFAULT_MODEL } from '../shared/constants';
+import { readSettings } from '../shared/storage';
+import { getProviderConfig } from '../shared/settings';
+import { sendToBackground, sendToTab } from '../shared/messages';
+import { fillLanguageSelect } from '../shared/dom';
+import type { ExtensionSettings, LanguageCode, PublicSettings, TranslationProviderType } from '../shared/types';
+import { GEMINI_DEFAULT_MODEL, OPENAI_DEFAULT_MODEL, PROVIDER_LABELS, PROVIDERS_REQUIRING_KEY } from '../shared/constants';
 
 class PopupController {
   private settings!: ExtensionSettings;
 
   async init(): Promise<void> {
-    this.settings = await loadSettings();
+    this.settings = await readSettings();
     this.render();
     this.bindEvents();
     this.checkStatus();
   }
 
   private render(): void {
+    const version = document.getElementById('popupVersion');
+    if (version) version.textContent = `v${chrome.runtime.getManifest().version}`;
+
     // Toggle
     const toggle = document.getElementById('toggleEnabled') as HTMLInputElement;
     toggle.checked = this.settings.enabled;
     this.updateToggleStatus(this.settings.enabled);
 
     // Languages
-    (document.getElementById('sourceLanguage') as HTMLSelectElement).value = this.settings.sourceLanguage;
-    (document.getElementById('targetLanguage') as HTMLSelectElement).value = this.settings.targetLanguage;
+    fillLanguageSelect(document.getElementById('sourceLanguage') as HTMLSelectElement | null, this.settings.sourceLanguage);
+    fillLanguageSelect(document.getElementById('targetLanguage') as HTMLSelectElement | null, this.settings.targetLanguage);
 
     // Provider
     const providerSelect = document.getElementById('translationProvider') as HTMLSelectElement | null;
@@ -42,76 +50,62 @@ class PopupController {
     this.updateProviderUI();
   }
 
+  private async save(update: Partial<PublicSettings>): Promise<void> {
+    this.settings = await sendToBackground('UPDATE_SETTINGS', update);
+  }
+
   private bindEvents(): void {
     // Toggle
     document.getElementById('toggleEnabled')?.addEventListener('change', async (e) => {
       const enabled = (e.target as HTMLInputElement).checked;
-      await saveSettings({ enabled });
+      await this.save({ enabled });
       this.updateToggleStatus(enabled);
     });
 
     // Smart sentences toggle
     document.getElementById('smartSentenceMode')?.addEventListener('change', async (e) => {
       const smartSentenceMode = (e.target as HTMLInputElement).checked;
-      await saveSettings({ smartSentenceMode });
+      await this.save({ smartSentenceMode });
       this.updateSmartSentenceStatus(smartSentenceMode);
     });
 
-    // Source language
+    // Languages
     document.getElementById('sourceLanguage')?.addEventListener('change', async (e) => {
-      const value = (e.target as HTMLSelectElement).value as LanguageCode;
-      await saveSettings({ sourceLanguage: value });
+      await this.save({ sourceLanguage: (e.target as HTMLSelectElement).value as LanguageCode });
     });
-
-    // Target language
     document.getElementById('targetLanguage')?.addEventListener('change', async (e) => {
-      const value = (e.target as HTMLSelectElement).value as LanguageCode;
-      await saveSettings({ targetLanguage: value });
+      await this.save({ targetLanguage: (e.target as HTMLSelectElement).value as LanguageCode });
     });
 
     // Translation provider
     document.getElementById('translationProvider')?.addEventListener('change', async (e) => {
-      const value = (e.target as HTMLSelectElement).value as TranslationProviderType;
-      this.settings = await saveSettings({ translationProvider: value });
+      await this.save({ translationProvider: (e.target as HTMLSelectElement).value as TranslationProviderType });
       this.updateProviderUI();
       this.checkStatus();
     });
 
-    // Save API key directly from popup
-    document.getElementById('saveApiKeyBtn')?.addEventListener('click', async () => {
-      const keyInput = document.getElementById('popupApiKey') as HTMLInputElement | null;
-      if (keyInput) {
-        const apiKey = keyInput.value.trim();
-        this.settings = await saveProviderConfig(this.settings.translationProvider, { apiKey });
-        const btn = document.getElementById('saveApiKeyBtn');
+    // Save API key / model directly from popup
+    const bindProviderField = (buttonId: string, inputId: string, field: 'apiKey' | 'apiModel', label: string) => {
+      document.getElementById(buttonId)?.addEventListener('click', async () => {
+        const input = document.getElementById(inputId) as HTMLInputElement | null;
+        if (!input) return;
+        this.settings = await sendToBackground('UPDATE_PROVIDER_CONFIG', {
+          provider: this.settings.translationProvider,
+          config: { [field]: input.value.trim() },
+        });
+        const btn = document.getElementById(buttonId);
         if (btn) {
           btn.textContent = '✓ Saved';
           setTimeout(() => {
-            if (btn) btn.textContent = 'Save';
+            btn.textContent = label;
           }, 1500);
         }
         this.updateProviderUI();
         this.checkStatus();
-      }
-    });
-
-    // Save Model directly from popup
-    document.getElementById('saveModelBtn')?.addEventListener('click', async () => {
-      const modelInput = document.getElementById('popupApiModel') as HTMLInputElement | null;
-      if (modelInput) {
-        const apiModel = modelInput.value.trim();
-        this.settings = await saveProviderConfig(this.settings.translationProvider, { apiModel });
-        const btn = document.getElementById('saveModelBtn');
-        if (btn) {
-          btn.textContent = '✓ Saved';
-          setTimeout(() => {
-            if (btn) btn.textContent = 'Set';
-          }, 1500);
-        }
-        this.updateProviderUI();
-        this.checkStatus();
-      }
-    });
+      });
+    };
+    bindProviderField('saveApiKeyBtn', 'popupApiKey', 'apiKey', 'Save');
+    bindProviderField('saveModelBtn', 'popupApiModel', 'apiModel', 'Set');
 
     // Settings button
     document.getElementById('openSettings')?.addEventListener('click', () => {
@@ -135,7 +129,7 @@ class PopupController {
     const apiKeyHintText = document.getElementById('apiKeyHintText');
     const banner = document.getElementById('providerBanner');
 
-    const needsKey = ['gemini', 'openai', 'deepl', 'google-cloud'].includes(provider);
+    const needsKey = PROVIDERS_REQUIRING_KEY.has(provider);
 
     if (apiKeyPanel) {
       apiKeyPanel.style.display = needsKey ? 'block' : 'none';
@@ -156,13 +150,7 @@ class PopupController {
 
     if (apiKeyInput) {
       apiKeyInput.value = config.apiKey;
-      if (provider === 'gemini') {
-        apiKeyInput.placeholder = 'Paste Google Gemini API Key...';
-      } else if (provider === 'openai') {
-        apiKeyInput.placeholder = 'Paste OpenAI API Key...';
-      } else {
-        apiKeyInput.placeholder = 'Paste API Key here...';
-      }
+      apiKeyInput.placeholder = `Paste ${PROVIDER_LABELS[provider]} API key...`;
     }
 
     if (apiKeyHintText) {
@@ -170,25 +158,29 @@ class PopupController {
         apiKeyHintText.innerHTML = 'Free key: <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a>';
       } else if (provider === 'openai') {
         apiKeyHintText.innerHTML = 'Get key: <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com</a>';
+      } else {
+        apiKeyHintText.textContent = 'Stored in this browser profile and sent only to the selected provider.';
       }
     }
 
     if (banner) {
+      banner.style.display = 'flex';
+      const fallback = this.settings.fallbackToGoogle;
       if (needsKey && !config.apiKey) {
-        banner.style.display = 'flex';
         banner.className = 'provider-banner warning';
-        banner.textContent = `⚠️ ${provider.toUpperCase()} requires an API key! Currently falling back to Google Free.`;
-      } else if (needsKey && config.apiKey) {
-        banner.style.display = 'flex';
+        banner.textContent = fallback
+          ? `⚠️ ${PROVIDER_LABELS[provider]} needs an API key. Google Translate is used until you add one.`
+          : `⚠️ ${PROVIDER_LABELS[provider]} needs an API key. Subtitles stay untranslated until you add one.`;
+      } else if (needsKey) {
         banner.className = 'provider-banner success';
         const activeModel =
           config.apiModel ||
-          (provider === 'gemini' ? GEMINI_DEFAULT_MODEL : provider === 'openai' ? OPENAI_DEFAULT_MODEL : provider);
-        banner.textContent = `✨ ${activeModel} active (falls back to Google on errors)`;
+          (provider === 'gemini' ? GEMINI_DEFAULT_MODEL : provider === 'openai' ? OPENAI_DEFAULT_MODEL : PROVIDER_LABELS[provider]);
+        banner.textContent = fallback ? `✨ ${activeModel} active (falls back to Google on errors)` : `✨ ${activeModel} active`;
       } else {
-        banner.style.display = 'flex';
         banner.className = 'provider-banner info';
-        banner.textContent = `⚡ Google Translate (Enhanced with IT/QA dictionary)`;
+        banner.textContent =
+          provider === 'google-free' ? '⚡ Google Translate (Enhanced with IT/QA dictionary)' : `🔓 ${PROVIDER_LABELS[provider]}`;
       }
     }
   }
@@ -216,17 +208,7 @@ class PopupController {
 
     if (!statusDot || !statusText || !providerName) return;
 
-    // Update provider name
-    const providerNames: Record<string, string> = {
-      'chrome-builtin': 'Chrome Built-in (On-Device)',
-      'google-free': 'Google Translate (Free)',
-      'google-cloud': 'Google Cloud Translation',
-      'deepl': 'DeepL',
-      'openai': 'OpenAI',
-      'gemini': 'Gemini',
-      'libretranslate': 'LibreTranslate',
-    };
-    providerName.textContent = `Provider: ${providerNames[this.settings.translationProvider] || this.settings.translationProvider}`;
+    providerName.textContent = `Provider: ${PROVIDER_LABELS[this.settings.translationProvider]}`;
 
     // Check if we're on a Udemy page
     try {
@@ -241,16 +223,13 @@ class PopupController {
       // Try to get status from content script
       if (tab.id) {
         try {
-          const response = await chrome.tabs.sendMessage(tab.id, { action: 'GET_STATUS' });
-          if (response?.success) {
-            const { detected } = response.data;
-            if (detected) {
-              statusDot.className = 'status-dot active';
-              statusText.textContent = 'Subtitles detected';
-            } else {
-              statusDot.className = 'status-dot waiting';
-              statusText.textContent = 'Looking for subtitles...';
-            }
+          const { detected } = await sendToTab(tab.id, 'GET_STATUS');
+          if (detected) {
+            statusDot.className = 'status-dot active';
+            statusText.textContent = 'Subtitles detected';
+          } else {
+            statusDot.className = 'status-dot waiting';
+            statusText.textContent = 'Looking for subtitles...';
           }
         } catch {
           statusDot.className = 'status-dot waiting';

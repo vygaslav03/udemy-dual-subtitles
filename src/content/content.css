@@ -100,20 +100,34 @@
   pointer-events: none !important;
 }
 
-/* Word tooltip close on click outside */
+/* Translation produced by the Google fallback instead of the configured provider */
+.uds-fallback .uds-text:last-child::after {
+  content: " · Google";
+  font-size: 0.7em;
+  font-style: normal;
+  opacity: 0.6;
+}
+
+/* The word tooltip is anchored at the click point (no horizontal centering) */
 .uds-word-tooltip {
   animation: uds-fade-in 0.15s ease-out;
 }
 
+/* The selection button and popup are centered with translateX(-50%) */
 .uds-sel-btn {
-  animation: uds-fade-in 0.1s ease-out;
+  animation: uds-fade-in-centered 0.1s ease-out;
 }
 
 .uds-sel-popup {
-  animation: uds-fade-in 0.15s ease-out;
+  animation: uds-fade-in-centered 0.15s ease-out;
 }
 
 @keyframes uds-fade-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes uds-fade-in-centered {
   from { opacity: 0; transform: translateX(-50%) translateY(-4px); }
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
